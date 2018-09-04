@@ -9,7 +9,7 @@ import (
 	"encoding/hex"
 	"os"
 	"path"
-	"gofarmer/msg"
+	"github.com/GenaroNetwork/go-farmer/msg"
 )
 
 type Config struct {

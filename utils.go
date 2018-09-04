@@ -10,10 +10,10 @@ import (
 	"io/ioutil"
 	"fmt"
 	"time"
-	"gofarmer/msg"
 	"os"
 	"io"
 	"path"
+	"github.com/GenaroNetwork/go-farmer/msg"
 )
 
 const (

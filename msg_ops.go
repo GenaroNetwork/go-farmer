@@ -2,9 +2,9 @@ package main
 
 import (
 	"encoding/json"
-	"gofarmer/msg"
 	"fmt"
 	"github.com/mitchellh/mapstructure"
+	"github.com/GenaroNetwork/go-farmer/msg"
 )
 
 // MsgInOut fill in received msg,

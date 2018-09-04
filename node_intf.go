@@ -1,8 +1,8 @@
 package main
 
 import (
-	"gofarmer/crypto"
-	"gofarmer/msg"
+	"github.com/GenaroNetwork/go-farmer/msg"
+	"github.com/GenaroNetwork/go-farmer/crypto"
 )
 
 type INode interface {

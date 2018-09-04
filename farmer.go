@@ -1,8 +1,6 @@
 package main
 
 import (
-	"gofarmer/msg"
-	"gofarmer/crypto"
 	"github.com/satori/go.uuid"
 	"encoding/hex"
 	"time"
@@ -17,6 +15,8 @@ import (
 	"crypto/sha256"
 	"io"
 	"golang.org/x/crypto/ripemd160"
+	"github.com/GenaroNetwork/go-farmer/msg"
+	"github.com/GenaroNetwork/go-farmer/crypto"
 )
 
 var contractCache *cache.Cache
