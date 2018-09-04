@@ -8,12 +8,13 @@ type Mirror struct {
 }
 
 type MirrorParams struct {
-	DataHash  string  `json:"data_hash" mapstructure:"data_hash"`
-	Token     string  `json:"token"`
-	Farmer    Contact `json:"farmer"`
-	Contact   Contact `json:"contact"`
-	Nonce     int     `json:"nonce"`
-	Signature string  `json:"signature"`
+	DataHash  string   `json:"data_hash" mapstructure:"data_hash"`
+	Token     string   `json:"token"`
+	Farmer    Contact  `json:"farmer"`
+	Contact   Contact  `json:"contact"`
+	AuditTree []string `json:"audit_tree" mapstructure:"audit_tree"`
+	Nonce     int      `json:"nonce"`
+	Signature string   `json:"signature"`
 }
 
 func (m *Mirror) IsValid() bool {

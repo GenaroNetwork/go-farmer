@@ -25,6 +25,13 @@ type Contact struct {
 	Protocol string `json:"protocol"`
 }
 
+func (c *Contact) IsValid() bool {
+	if c.Address == "" || c.Port == 0 || c.NodeID == "" || c.Protocol == "" {
+		return false
+	}
+	return true
+}
+
 // Contract between farmer and renter
 type Contract struct {
 	//Contact              Contact `json:"contact"`
@@ -52,6 +59,18 @@ func (c *Contract) Stringify() string {
 	delete(m, "farmer_signature")
 	s, _ := json.Marshal(m)
 	return string(s)
+}
+
+func (c *Contract) IsValid() (valid bool) {
+	valid = false
+	if c.RenterID == "" ||
+		c.RenterSignature == "" ||
+		c.DataSize == 0 ||
+		c.DataHash == "" ||
+		c.StoreBegin == 0 || c.StoreEnd == 0 || c.StoreBegin >= c.StoreEnd {
+		return
+	}
+	return true
 }
 
 // general response for
@@ -116,4 +135,18 @@ func (m *ResErr) SetNonce(n int) {
 
 func (m *ResErr) SetSignature(sig string) {
 	m.Result.Signature = sig
+}
+
+func NewResErr(contact Contact, msg string) *ResErr {
+	return &ResErr{
+		Res: Res{
+			Result: ResResult{
+				Contact: contact,
+			},
+		},
+		Error: ResErrError{
+			Code:    -1,
+			Message: msg,
+		},
+	}
 }

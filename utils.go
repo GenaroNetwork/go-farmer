@@ -144,6 +144,13 @@ func SendMsg(c msg.Contact, m *MsgInOut, dur time.Duration, cb SendMsgHandler) e
 }
 
 func DownloadShard(c msg.Contact, dataHash, token string) error {
+	// check shard existence
+	fPath := path.Join(Cfg.GetShardsPath(), dataHash)
+	_, err := os.Stat(fPath)
+	if os.IsExist(err) {
+		return errors.New("shard already exist")
+	}
+
 	// prepare request
 	url := fmt.Sprintf("http://%v:%v/shards/%v?token=%v", c.Address, c.Port, dataHash, token)
 	req, err := http.NewRequest("GET", url, nil)
@@ -159,22 +166,30 @@ func DownloadShard(c msg.Contact, dataHash, token string) error {
 		return err
 	}
 
-	fPath := path.Join(Cfg.GetShardsPath(), dataHash)
-	_, err = os.Stat(fPath)
-	if os.IsExist(err) {
-		return errors.New("shard already exist")
-	}
 	// download shard
-	go func() {
-		fHandle, err := os.Create(fPath)
+	go func(path string) {
+		fHandle, err := os.Create(path)
 		if err != nil {
+			fmt.Printf("[DownloadShard] create shard error: %v\n", err)
+			// if exist, remove the broken file
+			_, err = os.Stat(path)
+			if os.IsExist(err) {
+				rErr := os.Remove(path)
+				if rErr != nil {
+					fmt.Printf("remove broken file: %v\n", rErr)
+				}
+			}
 			return
 		}
-		_, err = io.Copy(fHandle, resp.Body)
+		defer fHandle.Close()
+		fmt.Printf("[DownloadShard] downloading shard\n")
+		size, err := io.Copy(fHandle, resp.Body)
 		if err != nil {
+			fmt.Printf("[DownloadShard] download shard error: %v\n", err)
 			return
 		}
+		fmt.Printf("[DownloadShard] downloaded shard, size: %v\n", size)
 		// TODO: update db ?
-	}()
+	}(fPath)
 	return nil
 }

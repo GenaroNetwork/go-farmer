@@ -20,6 +20,7 @@ import (
 )
 
 var contractCache *cache.Cache
+var mirrorCache *cache.Cache
 
 type storageItem struct {
 	Contract msg.Contract `json:"contract"`
@@ -29,7 +30,7 @@ type storageItem struct {
 
 func init() {
 	contractCache = cache.New(2*time.Minute, 5*time.Minute)
-	//publishCache = cache.New(2*time.Minute, 5*time.Minute)
+	mirrorCache = cache.New(2*time.Minute, 5*time.Minute)
 }
 
 type Farmer struct {
@@ -266,6 +267,7 @@ func (f *Farmer) offer(contact msg.Contact, c msg.Contract) {
 		msgInStruct := msgInOut.MsgInStruct()
 		switch msgInStruct.(type) {
 		case *msg.ResErr:
+			fmt.Println(c)
 			msgResErr := msgInStruct.(*msg.ResErr)
 			return errors.New(msgResErr.Error.Message)
 		case *msg.OfferRes:
@@ -350,6 +352,13 @@ func (f *Farmer) onPublish(m *MsgInOut) IMessage {
 	msgPublish := m.MsgInStruct().(*msg.Publish)
 	_uuid := msgPublish.Params.Uuid
 	_dataHash := msgPublish.Params.Contents.DataHash
+
+	// if contract valid
+	contract := msgPublish.Params.Contents
+	if contract.IsValid() == false {
+		//fmt.Println("[ON PUBLISH] invalid contract")
+		return f._generalRes(m)
+	}
 	fmt.Printf("received msg: %v %v\n", msg.MPublish, _uuid)
 
 	// if already processed
@@ -362,9 +371,7 @@ func (f *Farmer) onPublish(m *MsgInOut) IMessage {
 
 	// TODO: send offer (or not) according to contract
 	if doOffer {
-		contractCache.Set(_dataHash, "", cache.DefaultExpiration)
-		//publishCache.Set(_uuid, "", cache.DefaultExpiration)
-		contract := msgPublish.Params.Contents
+		contractCache.Set(_dataHash, nil, cache.DefaultExpiration)
 		addr := "0x5d14313c94f1b26d23f4ce3a49a2e136a88a584b"
 		contract.PaymentDestination = &addr
 		f.SignContract(&contract)
@@ -533,24 +540,58 @@ func (f *Farmer) onRetrieve(m *MsgInOut) IMessage {
 }
 
 func (f *Farmer) onMirror(m *MsgInOut) IMessage {
-	// if contract exist
-	// if shard not exist
-	// lock contract ?
 	msgMirror := m.MsgInStruct().(*msg.Mirror)
-	err := DownloadShard(msgMirror.Params.Contact, msgMirror.Params.DataHash, msgMirror.Params.Token)
+	// if already processed
+	dataHash := msgMirror.Params.DataHash
+	_, okDataHash := mirrorCache.Get(dataHash)
+	if okDataHash {
+		fmt.Println("[ON MIRROR] mirror message already processed")
+		return f._generalRes(m)
+	}
+	mirrorCache.Set(dataHash, nil, time.Second*30)
+	// if contract exist
+	sItemRaw, err := BoltDbGet([]byte(dataHash), BucketContract)
+	if err != nil {
+		fmt.Printf("[ON MIRROR] no contract, %v\n", err)
+		return msg.NewResErr(f.Contact(), "[ON MIRROR] no contract")
+	}
+
+	// if trees exists
+	var sItem storageItem
+	err = json.Unmarshal(sItemRaw, &sItem)
+	if err != nil {
+		fmt.Printf("[ON MIRROR] sItem bad format, %v\n", err)
+		return msg.NewResErr(f.Contact(), "[ON MIRROR] sItem bad format")
+	}
+	trees := msgMirror.Params.AuditTree
+	if sItem.Contract.AuditCount != len(trees) {
+		fmt.Println("[ON MIRROR] mirror msg bad format")
+		return msg.NewResErr(f.Contact(), "[ON MIRROR] mirror msg bad format")
+	}
+
+	// if shard exist
+	fPath := path.Join(Cfg.GetShardsPath(), dataHash)
+	_, err = os.Stat(fPath)
+	if os.IsExist(err) {
+		fmt.Println("[ON MIRROR] shard already exist")
+		return f._generalRes(m)
+	}
+
+	// TODO: lock contract ?
+	fmt.Printf("[ON MIRROR] hash: %v\n", msgMirror.Params.DataHash)
+	err = DownloadShard(msgMirror.Params.Farmer, msgMirror.Params.DataHash, msgMirror.Params.Token)
 	if err != nil {
 		fmt.Printf("mirror error: %v\n", err)
-		return &msg.ResErr{
-			Res: msg.Res{
-				Result: msg.ResResult{
-					Contact: f.Contact(),
-				},
-			},
-			Error: msg.ResErrError{
-				Code:    -1,
-				Message: "mirror shard failed",
-			},
-		}
+		return msg.NewResErr(f.Contact(), "[ON MIRROR] mirror shard failed")
+	}
+
+	// save trees
+	sItem.Trees = trees
+	sItemRaw, _ = json.Marshal(sItem)
+	err = BoltDbSet([]byte(dataHash), sItemRaw, BucketContract, true)
+	if err != nil {
+		// TODO: no trees, but have shard
+		return msg.NewResErr(f.Contact(), "[ON MIRROR] save trees error")
 	}
 	return f._generalRes(m)
 }
@@ -561,17 +602,7 @@ func (f *Farmer) onAudit(m *MsgInOut) IMessage {
 	fmt.Printf("received msg AUDIT, hash: %v, id: %v\n", msgAudit.Params.Audits[0].DataHash, msgAudit.GetId())
 	if len(msgAudit.Params.Audits) == 0 {
 		fmt.Printf("audit no challenge, msg id: %v", msgAudit.GetId())
-		return &msg.ResErr{
-			Res: msg.Res{
-				Result: msg.ResResult{
-					Contact: f.Contact(),
-				},
-			},
-			Error: msg.ResErrError{
-				Code:    -1,
-				Message: "audit no challenge",
-			},
-		}
+		return msg.NewResErr(f.Contact(), "[ON AUDIT] audit message no challenge")
 	}
 	audit := msgAudit.Params.Audits[0]
 
@@ -612,6 +643,11 @@ func (f *Farmer) onAudit(m *MsgInOut) IMessage {
 	var sItem storageItem
 	err = json.Unmarshal(sItemRaw, &sItem)
 	if err != nil || len(sItem.Trees) == 0 {
+		if err != nil {
+			fmt.Printf("[AUDIT] parse sItem failed: %v\n", err)
+		} else {
+			fmt.Println("[AUDIT] tree length: 0")
+		}
 		return &msg.ResErr{
 			Res: msg.Res{
 				Result: msg.ResResult{
@@ -628,6 +664,7 @@ func (f *Farmer) onAudit(m *MsgInOut) IMessage {
 	// open shard for read
 	fHandle, err := os.Open(fPath)
 	if err != nil {
+		fmt.Printf("[AUDIT] open shard failed: %v\n", err)
 		return &msg.ResErr{
 			Res: msg.Res{
 				Result: msg.ResResult{
@@ -640,6 +677,7 @@ func (f *Farmer) onAudit(m *MsgInOut) IMessage {
 			},
 		}
 	}
+	defer fHandle.Close()
 
 	// sha256 of shard
 	h := sha256.New()
@@ -659,6 +697,7 @@ func (f *Farmer) onAudit(m *MsgInOut) IMessage {
 	}
 	h.Write(chal)
 	if _, err := io.Copy(h, fHandle); err != nil {
+		fmt.Printf("[AUDIT] read shard error: %v\n", err)
 		return &msg.ResErr{
 			Res: msg.Res{
 				Result: msg.ResResult{
@@ -688,6 +727,7 @@ func (f *Farmer) onAudit(m *MsgInOut) IMessage {
 		}
 	}
 	if auditResCmpPos == -1 {
+		fmt.Printf("[ON AUDIT] compare tree failed, hash: %v\n", audit.DataHash)
 		return &msg.ResErr{
 			Res: msg.Res{
 				Result: msg.ResResult{

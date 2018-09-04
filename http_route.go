@@ -95,13 +95,12 @@ func ShardHandler() http.HandlerFunc {
 				w.WriteHeader(http.StatusNotFound)
 				return
 			}
+			defer fHandle.Close()
 			_, err = io.Copy(w, fHandle)
 			if err != nil {
 				fmt.Printf("stream file for download error: %v\n", err)
-				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
-			fHandle.Close()
 			fmt.Printf("retrieved %v\n", token)
 			return
 		}
@@ -114,6 +113,11 @@ func ShardHandler() http.HandlerFunc {
 			}
 			// save shard
 			fHandle, err := os.Create(fPath)
+			if err != nil {
+				fmt.Printf("create shard error: %v\n", err)
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
 			_, err = io.Copy(fHandle, r.Body)
 			if err != nil {
 				// TODO: close handle ?
@@ -135,6 +139,7 @@ func ShardHandler() http.HandlerFunc {
 			if cErr != nil {
 				fmt.Printf("shard saved: %v\nclose file err: %v\n", hash, cErr)
 			}
+			fmt.Printf("[UPLOAD SHARD] shard uploaded, hash: %v\n", hash)
 		}
 	}
 }
