@@ -34,6 +34,19 @@
   version = "v2.1.0"
 
 [[projects]]
+  digest = "1:d823cf8863c515f10fe9084d9688e8cf01084fd83dd11bcb67e13162c30b3a4a"
+  name = "github.com/rs/zerolog"
+  packages = [
+    ".",
+    "internal/cbor",
+    "internal/json",
+    "log",
+  ]
+  pruneopts = "UT"
+  revision = "77db4b4f350e31be66a57c332acb7721cf9ff9bb"
+  version = "v1.8.0"
+
+[[projects]]
   digest = "1:274f67cb6fed9588ea2521ecdac05a6d62a8c51c074c1fccc6a49a40ba80e925"
   name = "github.com/satori/go.uuid"
   packages = ["."]
@@ -65,6 +78,7 @@
     "github.com/ethereum/go-ethereum/crypto/secp256k1",
     "github.com/mitchellh/mapstructure",
     "github.com/patrickmn/go-cache",
+    "github.com/rs/zerolog/log",
     "github.com/satori/go.uuid",
     "golang.org/x/crypto/ripemd160",
   ]

@@ -1,8 +1,9 @@
 package msg
 
 import (
-	"github.com/mitchellh/mapstructure"
 	"encoding/json"
+
+	"github.com/mitchellh/mapstructure"
 )
 
 const (

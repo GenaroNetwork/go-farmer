@@ -1,14 +1,15 @@
 package main
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
-	"strings"
 	"net"
-	"strconv"
-	"encoding/hex"
 	"os"
 	"path"
+	"strconv"
+	"strings"
+
 	"github.com/GenaroNetwork/go-farmer/msg"
 )
 
@@ -46,7 +47,7 @@ func (c *Config) Parse() error {
 	}
 	ip, port, err := parseAddr(other)
 	if err != nil {
-		return errors.New(fmt.Sprintf("renter_addr invalid: %v", err))
+		return fmt.Errorf("[CONFIG] renter_addr invalid: %v", err)
 	}
 	c.RenterAddr = scheme + other
 
@@ -58,19 +59,19 @@ func (c *Config) Parse() error {
 	}
 	ip, port, err = parseAddr(other)
 	if err != nil {
-		return errors.New(fmt.Sprintf("local_addr invalid: %v", err))
+		return fmt.Errorf("local_addr invalid: %v", err)
 	}
 	c.localPort = port
 	c.localIP = ip.String()
 
 	// validate node private key
 	if err := isValidHexStr(c.NodePrivateKey); err != nil {
-		return errors.New(fmt.Sprintf("node_private_key invalid: %v", err))
+		return fmt.Errorf("node_private_key invalid: %v", err)
 	}
 
 	// validate node id
 	if err := isValidHexStr(c.NodeId); err != nil {
-		return errors.New(fmt.Sprintf("node_id invalid: %v", err))
+		return fmt.Errorf("node_id invalid: %v", err)
 	}
 
 	// validate data dir
@@ -89,7 +90,7 @@ func (c *Config) Parse() error {
 	if os.IsNotExist(err) {
 		err := os.Mkdir(shardPath, 0666)
 		if err != nil {
-			return errors.New(fmt.Sprintf("create shards dir failed: %v", err))
+			return fmt.Errorf("create shards dir failed: %v", err)
 		}
 	}
 
@@ -106,19 +107,19 @@ func (c *Config) Parse() error {
 		}
 		seps := strings.Split(addr, "/")
 		if len(seps) != 2 {
-			return errors.New(fmt.Sprintf("seed bad format: %v", seed))
+			return fmt.Errorf("seed bad format: %v", seed)
 		}
 
 		// validate addr:port
 		ip, port, err := parseAddr(seps[0])
 		if err != nil {
-			return errors.New(fmt.Sprintf("seed addr error: %v", err))
+			return fmt.Errorf("seed addr error: %v", err)
 		}
 
 		// validate seed id
 		err = isValidHexStr(seps[1])
 		if err != nil {
-			return errors.New(fmt.Sprintf("seed id error: %v", err))
+			return fmt.Errorf("seed id error: %v", err)
 		}
 
 		contact := msg.Contact{

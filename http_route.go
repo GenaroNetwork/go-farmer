@@ -1,13 +1,13 @@
 package main
 
 import (
-	"fmt"
-	"net/http"
-	"path"
-	"os"
 	"io"
-	"regexp"
 	"io/ioutil"
+	"log"
+	"net/http"
+	"os"
+	"path"
+	"regexp"
 )
 
 type route struct {
@@ -60,61 +60,62 @@ func RootHandler(node INode) http.HandlerFunc {
 
 func ShardHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		dataHash := r.URL.Path[len("/shards/"):]
+
 		// get token from request
 		token := r.URL.Query().Get("token")
 		if token == "" {
-			fmt.Println("Shard request has no token")
+			log.Printf("[SHARD] request has no token DATA_HASH=%v\n", dataHash)
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 		// check if token is valid
 		_, err := BoltDbGet([]byte(token), BucketToken)
 		if err != nil {
-			fmt.Printf("Token not exist: %v\n", err)
+			log.Printf("[SHARD] check token existence error DATA_HASH=%v ERROR=%v\n", dataHash, err)
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 
 		// check if shard already exist
-		hash := r.URL.Path[len("/shards/"):]
-		fPath := path.Join(Cfg.GetShardsPath(), hash)
+		fPath := path.Join(Cfg.GetShardsPath(), dataHash)
 		_, err = os.Stat(fPath)
 
 		// download shard
 		if r.Method == "GET" {
-			fmt.Printf("retrieving token: %v\n", token)
+			log.Printf("[SHARD GET] DATA_HASH=%v TOKEN=%v\n", dataHash, token)
 			if os.IsNotExist(err) {
-				fmt.Printf("Shard not exist for download: %v\n", hash)
+				log.Printf("[SHARD GET] no shard DATA_HASH=%v TOKEN=%v\n", dataHash, token)
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
 			fHandle, err := os.Open(fPath)
 			if err != nil {
-				// TODO: close handle
-				fmt.Printf("open file for download error: %v\n", hash)
+				// TODO: close handle?
+				log.Printf("[SHARD GET] open shard error DATA_HASH=%v TOKEN=%v ERROR=%v\n", dataHash, token, err)
 				w.WriteHeader(http.StatusNotFound)
 				return
 			}
 			defer fHandle.Close()
 			_, err = io.Copy(w, fHandle)
 			if err != nil {
-				fmt.Printf("stream file for download error: %v\n", err)
+				log.Printf("[SHARD GET] copy shard error DATA_HASH=%v TOKEN=%v ERROR=%v\n", dataHash, token, err)
 				return
 			}
-			fmt.Printf("retrieved %v\n", token)
+			log.Printf("[SHARD GET] success DATA_HASH=%v TOKEN=%v\n", dataHash, token)
 			return
 		}
 		// upload shard
 		if r.Method == "POST" {
 			if os.IsExist(err) {
-				fmt.Printf("Shard already exist for upload: %v\n", hash)
+				log.Printf("[SHARD POST] shard already exist DATA_HASH=%v TOKEN=%v\n", dataHash, token)
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
 			// save shard
 			fHandle, err := os.Create(fPath)
 			if err != nil {
-				fmt.Printf("create shard error: %v\n", err)
+				log.Printf("[SHARD POST] create shard error DATA_HASH=%v TOKEN=%v ERROR=%v\n", dataHash, token, err)
 				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
@@ -122,14 +123,14 @@ func ShardHandler() http.HandlerFunc {
 			if err != nil {
 				// TODO: close handle ?
 				if err != nil {
-					fmt.Printf("save shard error: %v\n", err)
+					log.Printf("[SHARD POST] save shard error DATA_HASH=%v TOKEN=%v ERROR=%v\n", dataHash, token, err)
 				}
 				// if exist, remove the broken file
 				_, err = os.Stat(fPath)
 				if os.IsExist(err) {
 					rErr := os.Remove(fPath)
 					if rErr != nil {
-						fmt.Printf("remove broken file: %v\n", rErr)
+						log.Printf("[SHARD POST] remove broken file error DATA_HASH=%v TOKEN=%v ERROR=%v\n", dataHash, token, rErr)
 					}
 				}
 				w.WriteHeader(http.StatusBadRequest)
@@ -137,9 +138,9 @@ func ShardHandler() http.HandlerFunc {
 			}
 			cErr := fHandle.Close()
 			if cErr != nil {
-				fmt.Printf("shard saved: %v\nclose file err: %v\n", hash, cErr)
+				log.Printf("[SHARD POST] close file error DATA_HASH=%v TOKEN=%v ERROR=%v\n", dataHash, token, cErr)
 			}
-			fmt.Printf("[UPLOAD SHARD] shard uploaded, hash: %v\n", hash)
+			log.Printf("[SHARD POST] success DATA_HASH=%v TOKEN%v\n", dataHash, token)
 		}
 	}
 }

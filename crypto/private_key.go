@@ -2,7 +2,8 @@ package crypto
 
 import (
 	"encoding/hex"
-	"fmt"
+	"log"
+
 	"github.com/ethereum/go-ethereum/crypto/secp256k1"
 )
 
@@ -23,7 +24,7 @@ func (pk *PrivateKey) Bytes() []byte {
 func (pk *PrivateKey) Sign(msg []byte) []byte {
 	s, err := secp256k1.Sign(msg, pk.Bytes())
 	if err != nil {
-		fmt.Printf("PrivateKey Sign: %v\n", err)
+		log.Printf("[CRYPTO SECP256K1] sign error ERROR=%v\n", err)
 		return nil
 	}
 	result := compactSig(s)

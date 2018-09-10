@@ -1,19 +1,21 @@
 package main
 
 import (
-	"github.com/boltdb/bolt"
-	"errors"
+	"bytes"
 	"crypto/sha256"
 	"encoding/json"
-	"bytes"
-	"net/http"
-	"io/ioutil"
+	"errors"
 	"fmt"
-	"time"
-	"os"
 	"io"
+	"io/ioutil"
+	"log"
+	"net/http"
+	"os"
 	"path"
+	"time"
+
 	"github.com/GenaroNetwork/go-farmer/msg"
+	"github.com/boltdb/bolt"
 )
 
 const (
@@ -136,7 +138,7 @@ func SendMsg(c msg.Contact, m *MsgInOut, dur time.Duration, cb SendMsgHandler) e
 	// parse response
 	rawBody, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		fmt.Printf("get resp raw body error: %v\n", err)
+		log.Printf("[UTILS SendMsg] get resp raw body error: %v\n", err)
 		return err
 	}
 	m.SetMsgInRaw(rawBody)
@@ -170,25 +172,25 @@ func DownloadShard(c msg.Contact, dataHash, token string) error {
 	go func(path string) {
 		fHandle, err := os.Create(path)
 		if err != nil {
-			fmt.Printf("[DownloadShard] create shard error: %v\n", err)
+			log.Printf("[UTILS DownloadShard] create shard error DATA_HASH=%v ERROR=%v\n", dataHash, err)
 			// if exist, remove the broken file
 			_, err = os.Stat(path)
 			if os.IsExist(err) {
 				rErr := os.Remove(path)
 				if rErr != nil {
-					fmt.Printf("remove broken file: %v\n", rErr)
+					log.Printf("[UTILS DownloadShard] remove broken file error DATA_HASH=%v ERROR=%v\n", dataHash, rErr)
 				}
 			}
 			return
 		}
 		defer fHandle.Close()
-		fmt.Printf("[DownloadShard] downloading shard\n")
+		log.Printf("[UTILS DownloadShard] downloading shard DATA_HASH=%v\n", dataHash)
 		size, err := io.Copy(fHandle, resp.Body)
 		if err != nil {
-			fmt.Printf("[DownloadShard] download shard error: %v\n", err)
+			log.Printf("[UTILS DownloadShard] download shard error DATA_HASH=%v ERROR=%v\n", dataHash, err)
 			return
 		}
-		fmt.Printf("[DownloadShard] downloaded shard, size: %v\n", size)
+		log.Printf("[UTILS DownloadShard] downloaded shard DATA_HASH=%v SIZE=%v\n", dataHash, size)
 		// TODO: update db ?
 	}(fPath)
 	return nil

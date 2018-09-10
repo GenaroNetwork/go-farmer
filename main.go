@@ -1,14 +1,14 @@
 package main
 
 import (
-	"flag"
-	"os"
-	"fmt"
-	"io/ioutil"
 	"encoding/json"
-	"regexp"
+	"flag"
+	"io/ioutil"
 	"log"
 	"net/http"
+	"os"
+	"regexp"
+
 	"github.com/boltdb/bolt"
 )
 
@@ -20,37 +20,36 @@ var BoltDB *bolt.DB
 var Cfg Config
 
 func init() {
+	// parse config
 	cPath := flag.String("config", "./config.json", "config file path")
 	flag.Parse()
 	_, err := os.Stat(*cPath)
 	if os.IsNotExist(err) {
-		fmt.Printf("file not exists: %v\n", *cPath)
-		os.Exit(1)
+		log.Fatalf("[CONFIG] file not exist PATH=%v\n", *cPath)
 	}
 	cnt, err := ioutil.ReadFile(*cPath)
 	if err != nil {
-		fmt.Printf("read config file err: %v\n", err)
-		os.Exit(2)
+		log.Fatalf("[CONFIG] read file error ERROR=%v\n", err)
 	}
 	err = json.Unmarshal(cnt, &Cfg)
 	if err != nil {
-		fmt.Printf("decode config file err: %v\n", err)
-		os.Exit(3)
+		log.Fatalf("[CONFIG] decode file error ERROR=%v\n", err)
 	}
 	if err = Cfg.Parse(); err != nil {
-		fmt.Printf("config file malformatted: %v\n", err)
-		os.Exit(4)
+		log.Fatalf("[CONFIG] file malformatted ERROR=%v\n", err)
 	}
 	js, _ := json.MarshalIndent(Cfg, "", "  ")
-	fmt.Printf("Cfg: %v\n", string(js))
+	log.Printf("[CONFIG] parsed CONFIG=%v\n", string(js))
 }
 
 func main() {
+	// prepare boltdb
 	boltDB, err := bolt.Open(Cfg.GetContractDBPath(), 0600, nil)
 	BoltDB = boltDB
 	if err != nil {
-		panic("cannot open boltdb")
+		log.Fatal("[BOLTDB] cannot open boltdb")
 	}
+	defer BoltDB.Close()
 	err = BoltDB.Update(func(tx *bolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists([]byte(BucketContract))
 		if err != nil {
@@ -63,10 +62,9 @@ func main() {
 		return nil
 	})
 	if err != nil {
-		fmt.Printf("create boltdb bucket err: %v\n", err)
+		log.Printf("[BOLTDB] create boltdb bucket error ERROR=%v\n", err)
 		return
 	}
-	defer BoltDB.Close()
 
 	var node INode
 	node = &Farmer{}
@@ -77,5 +75,6 @@ func main() {
 	handler.HandleFunc(regexp.MustCompile(`^/$`), RootHandler(node))
 	handler.HandleFunc(regexp.MustCompile(`^/shards/\w+$`), ShardHandler())
 
-	log.Fatal(http.ListenAndServe(":"+Cfg.GetLocalPortStr(), handler))
+	err = http.ListenAndServe(":"+Cfg.GetLocalPortStr(), handler)
+	log.Printf("[HTTP] listen error ERROR=%v\n", err)
 }
