@@ -182,6 +182,7 @@ func (f *Farmer) HeartBeat() {
 // do request
 ///////////////
 func (f *Farmer) ping(contact msg.Contact) error {
+	log.Printf("[PING] PEER=%v\n", contact.NodeID)
 	msgPing := msg.Ping{
 		JsonRpc: "2.0",
 		Method:  msg.MPing,
@@ -197,7 +198,7 @@ func (f *Farmer) ping(contact msg.Contact) error {
 		return nil
 	})
 	if err != nil {
-		log.Printf("[PING] PEER=%v ERROR=%v\n", contact.NodeID, err)
+		log.Printf("[PING] fail PEER=%v ERROR=%v\n", contact.NodeID, err)
 	} else {
 		log.Printf("[PING] success PEER=%v\n", contact.NodeID)
 	}
@@ -205,6 +206,7 @@ func (f *Farmer) ping(contact msg.Contact) error {
 }
 
 func (f *Farmer) probe(contact msg.Contact) error {
+	log.Printf("[PROBE] PEER=%v\n", contact.NodeID)
 	msgPing := msg.Probe{
 		JsonRpc: "2.0",
 		Method:  msg.MProbe,
@@ -316,34 +318,35 @@ func (f *Farmer) _generalRes(m *MsgInOut) IMessage {
 }
 
 func (f *Farmer) onPing(m *MsgInOut) IMessage {
+	msgPing := m.MsgInStruct().(*msg.Ping)
+	log.Printf("[ON PING] PEER=%v\n", msgPing.Params.Contact.NodeID)
 	return f._generalRes(m)
 }
 
 func (f *Farmer) onProbe(m *MsgInOut) IMessage {
 	msgProbe := m.MsgInStruct().(*msg.Probe)
-	chanProbeSucc := make(chan bool)
+	contact := msgProbe.Params.Contact
+	chanProbeSucc := make(chan error)
 	go func() {
-		err := f.ping(msgProbe.Params.Contact)
-		if err != nil {
-			chanProbeSucc <- true
-		} else {
-			chanProbeSucc <- false
-		}
+		err := f.ping(contact)
+		chanProbeSucc <- err
 	}()
-	if <-chanProbeSucc {
-		return f._generalRes(m)
-	}
-	return &msg.ResErr{
-		Res: msg.Res{
-			Result: msg.ResResult{
-				Contact: f.Contact(),
+	if err := <-chanProbeSucc; err != nil {
+		log.Printf("[ON PROBE] fail PEER=%v ERROR=%v\n", contact.NodeID, err)
+		return &msg.ResErr{
+			Res: msg.Res{
+				Result: msg.ResResult{
+					Contact: f.Contact(),
+				},
 			},
-		},
-		Error: msg.ResErrError{
-			Code:    -1,
-			Message: "unknown message",
-		},
+			Error: msg.ResErrError{
+				Code:    -1,
+				Message: "unknown message",
+			},
+		}
 	}
+	log.Printf("[ON PROBE] success PEER=%v\n", contact.NodeID)
+	return f._generalRes(m)
 }
 
 func (f *Farmer) onPublish(m *MsgInOut) IMessage {
@@ -357,7 +360,7 @@ func (f *Farmer) onPublish(m *MsgInOut) IMessage {
 	if contract.IsValid() == false {
 		return f._generalRes(m)
 	}
-	log.Printf("[PUBLISH] UUID=%v DATA_HASH=%v\n", _uuid, _dataHash)
+	log.Printf("[PUBLISH] DATA_HASH=%v UUID=%v\n", _dataHash, _uuid)
 
 	// if already processed
 	// check data_hash
@@ -491,7 +494,7 @@ func (f *Farmer) onConsign(m *MsgInOut) IMessage {
 			},
 		}
 	} else {
-		log.Printf("[ON CONSIGN] saved token DATA_HASH=%v TOKEN=%v\n", dataHash, token)
+		log.Printf("[ON CONSIGN] token saved DATA_HASH=%v TOKEN=%v\n", dataHash, token)
 	}
 
 	// save trees

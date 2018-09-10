@@ -140,7 +140,7 @@ func ShardHandler() http.HandlerFunc {
 			if cErr != nil {
 				log.Printf("[SHARD POST] close file error DATA_HASH=%v TOKEN=%v ERROR=%v\n", dataHash, token, cErr)
 			}
-			log.Printf("[SHARD POST] success DATA_HASH=%v TOKEN%v\n", dataHash, token)
+			log.Printf("[SHARD POST] success DATA_HASH=%v TOKEN=%v\n", dataHash, token)
 		}
 	}
 }
