@@ -16,6 +16,7 @@ import (
 
 	"github.com/GenaroNetwork/go-farmer/crypto"
 	"github.com/GenaroNetwork/go-farmer/msg"
+	"github.com/NebulousLabs/go-upnp"
 	"github.com/patrickmn/go-cache"
 	"github.com/satori/go.uuid"
 	"golang.org/x/crypto/ripemd160"
@@ -162,7 +163,50 @@ ret:
 }
 
 func (f *Farmer) HeartBeat() {
-	joinSucc := false
+	// try join network
+	joinSucc := f.doJoinNetwork()
+
+	if joinSucc == false {
+		// port-forwarding
+		log.Println("[HEARTBEAT] try upnp port-forwarding")
+		igd, err := upnp.Discover()
+		if err != nil {
+			log.Fatalf("[HEARTBEAT] discover device failed ERROR=%v\n", err)
+		}
+		err = igd.Forward(Cfg.localPort, "Genaro Sharer")
+		if err != nil {
+			log.Fatalf("[HEARTBEAT] port-forwarding failed ERROR=%v\n", err)
+		}
+		defer func() {
+			err := igd.Clear(Cfg.localPort)
+			if err != nil {
+				log.Printf("[HEARTBEAT] clear port-forwarding failed ERROR=%v\n", err)
+			}
+		}()
+
+		// try join network
+		joinSucc := f.doJoinNetwork()
+		if joinSucc == false {
+			log.Fatal("[HEARTBEAT] join network by port-forwarding failed")
+		}
+	}
+	log.Println("[HEARTBEAT] join network success")
+
+	// probe periodically
+	failCount := 0
+	for {
+		time.Sleep(time.Second * 10)
+		if joinSucc := f.doJoinNetwork(); joinSucc == false {
+			failCount += 1
+		}
+		if failCount >= 10 {
+			log.Fatal("[HEARTBEAT] disconnected from network")
+		}
+	}
+}
+
+func (f *Farmer) doJoinNetwork() (joinSucc bool) {
+	joinSucc = false
 	for _, seed := range Cfg.GetSeedList() {
 		err := f.probe(seed)
 		if err != nil {
@@ -174,8 +218,8 @@ func (f *Farmer) HeartBeat() {
 	}
 	if joinSucc == false {
 		log.Println("[HEARTBEAT] try join network failed")
-		os.Exit(-1)
 	}
+	return
 }
 
 ///////////////
