@@ -52,11 +52,3 @@
 [[constraint]]
   branch = "master"
   name = "golang.org/x/crypto"
-
-[[constraint]]
-  name = "go.uber.org/zap"
-  version = "1.9.1"
-
-[[constraint]]
-  name = "github.com/rs/zerolog"
-  version = "1.8.0"
