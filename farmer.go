@@ -198,6 +198,8 @@ func (f *Farmer) HeartBeat() {
 		time.Sleep(time.Second * 10)
 		if joinSucc := f.doJoinNetwork(); joinSucc == false {
 			failCount += 1
+		} else {
+			failCount = 0
 		}
 		if failCount >= 10 {
 			log.Fatal("[HEARTBEAT] disconnected from network")
