@@ -14,7 +14,6 @@ import (
 )
 
 type Config struct {
-	RenterAddr     string   `json:"renter_addr"`
 	LocalAddr      string   `json:"local_addr"`
 	NodePrivateKey string   `json:"node_private_key"`
 	NodeId         string   `json:"node_id"`
@@ -39,25 +38,12 @@ func (c *Config) GetLocalAddr() string {
 }
 
 func (c *Config) Parse() error {
-	// parse renter addr
-	scheme, other, suc := splitScheme(c.RenterAddr)
-	if suc == false {
-		other = c.RenterAddr
-		scheme = "http://"
-	}
-	ip, port, err := parseAddr(other)
-	if err != nil {
-		return fmt.Errorf("[CONFIG] renter_addr invalid: %v", err)
-	}
-	c.RenterAddr = scheme + other
-
 	// parse local addr
-	scheme, other, suc = splitScheme(c.LocalAddr)
+	_, other, suc := splitScheme(c.LocalAddr)
 	if suc == false {
 		other = c.LocalAddr
-		scheme = "http://"
 	}
-	ip, port, err = parseAddr(other)
+	ip, port, err := parseAddr(other)
 	if err != nil {
 		return fmt.Errorf("local_addr invalid: %v", err)
 	}

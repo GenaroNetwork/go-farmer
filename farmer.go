@@ -173,6 +173,13 @@ func (f *Farmer) HeartBeat() {
 		if err != nil {
 			log.Fatalf("[HEARTBEAT] discover device failed ERROR=%v\n", err)
 		}
+
+		ip, err := igd.ExternalIP()
+		if err != nil {
+			log.Fatalf("[HEARTBEAT] get external ip failed ERROR=%v\n", err)
+		}
+		f.contact.Address = ip
+
 		err = igd.Forward(Cfg.localPort, "Genaro Sharer")
 		if err != nil {
 			log.Fatalf("[HEARTBEAT] port-forwarding failed ERROR=%v\n", err)
@@ -365,7 +372,8 @@ func (f *Farmer) _generalRes(m *MsgInOut) IMessage {
 
 func (f *Farmer) onPing(m *MsgInOut) IMessage {
 	msgPing := m.MsgInStruct().(*msg.Ping)
-	log.Printf("[ON PING] PEER=%v\n", msgPing.Params.Contact.NodeID)
+	contact := msgPing.Params.Contact
+	log.Printf("[ON PING] PEER=%v IP=%v\n", contact.NodeID, contact.Address)
 	return f._generalRes(m)
 }
 
