@@ -260,16 +260,16 @@ func (f *Farmer) ping(contact msg.Contact) error {
 
 func (f *Farmer) probe(contact msg.Contact) error {
 	log.Printf("[PROBE] PEER=%v\n", contact.NodeID)
-	msgPing := msg.Probe{
+	msgProbe := msg.Probe{
 		JsonRpc: "2.0",
 		Method:  msg.MProbe,
 		Params: msg.ProbeParams{
 			Contact: f.Contact(),
 		},
 	}
-	f.Sign(&msgPing)
+	f.Sign(&msgProbe)
 	msgInOut := MsgInOut{}
-	msgInOut.SetMsgOutStruct(&msgPing)
+	msgInOut.SetMsgOutStruct(&msgProbe)
 	err := SendMsg(contact, &msgInOut, time.Second*8, func() error {
 		msgInOut.ParseMsgInRaw()
 		return nil
