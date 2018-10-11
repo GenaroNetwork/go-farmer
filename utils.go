@@ -115,6 +115,8 @@ func varintBufNum(n int) (buf []byte) {
 
 type SendMsgHandler func() error
 
+var client = &http.Client{}
+
 func SendMsg(c msg.Contact, m *MsgInOut, dur time.Duration, cb SendMsgHandler) error {
 	// prepare request payload
 	msgStr, _ := json.Marshal(m.MsgOutStruct())
@@ -129,7 +131,7 @@ func SendMsg(c msg.Contact, m *MsgInOut, dur time.Duration, cb SendMsgHandler) e
 	req.Header.Set("content-type", "application/json")
 
 	// do send request
-	client := &http.Client{Timeout: dur}
+	client.Timeout = dur
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
@@ -137,6 +139,7 @@ func SendMsg(c msg.Contact, m *MsgInOut, dur time.Duration, cb SendMsgHandler) e
 
 	// parse response
 	rawBody, err := ioutil.ReadAll(resp.Body)
+	_ = resp.Body.Close()
 	if err != nil {
 		log.Printf("[UTILS SendMsg] get resp raw body error: %v\n", err)
 		return err
@@ -162,7 +165,7 @@ func DownloadShard(c msg.Contact, dataHash, token string) error {
 	req.Header.Set("userAgent", "8.7.3")
 
 	// do send request
-	client := &http.Client{}
+	client.Timeout = 0
 	resp, err := client.Do(req)
 	if err != nil {
 		return err

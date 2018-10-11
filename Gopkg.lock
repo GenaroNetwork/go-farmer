@@ -34,12 +34,48 @@
   version = "v1.3.1"
 
 [[projects]]
-  digest = "1:15f49dc040681719fea5f4d8686d7fcd6cf590e4dce7528dec7336358a226c33"
+  digest = "1:e8b69b58284e37bbbffe01c1fd26f5cbcb08ab424f5d92105b306d7696d1a5e1"
   name = "github.com/ethereum/go-ethereum"
-  packages = ["crypto/secp256k1"]
+  packages = [
+    "crypto/secp256k1",
+    "log",
+    "p2p/nat",
+  ]
   pruneopts = "UT"
   revision = "225171a4bfcc16bd12a1906b1e0d43d0b18c353b"
   version = "v1.8.13"
+
+[[projects]]
+  digest = "1:586ea76dbd0374d6fb649a91d70d652b7fe0ccffb8910a77468e7702e7901f3d"
+  name = "github.com/go-stack/stack"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "2fee6af1a9795aafbe0253a0cfbdf668e1fb8a9a"
+  version = "v1.8.0"
+
+[[projects]]
+  branch = "master"
+  digest = "1:3f5e7a4329f76e2617bf094eb5eec2ec2eff590d145c0beb32bac699628dea7d"
+  name = "github.com/huin/goupnp"
+  packages = [
+    ".",
+    "dcps/internetgateway1",
+    "dcps/internetgateway2",
+    "httpu",
+    "scpd",
+    "soap",
+    "ssdp",
+  ]
+  pruneopts = "UT"
+  revision = "1395d1447324cbea88d249fbfcfd70ea878fdfca"
+
+[[projects]]
+  digest = "1:32b82e71cf24f8b78323e0d7903c4b90278486283965aa2a19b1ea13763b8f34"
+  name = "github.com/jackpal/go-nat-pmp"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "c9cfead9f2a36ddf3daa40ba269aa7f4bbba6b62"
+  version = "v1.0.1"
 
 [[projects]]
   branch = "master"
@@ -132,6 +168,7 @@
     "github.com/NebulousLabs/go-upnp",
     "github.com/boltdb/bolt",
     "github.com/ethereum/go-ethereum/crypto/secp256k1",
+    "github.com/ethereum/go-ethereum/p2p/nat",
     "github.com/mitchellh/mapstructure",
     "github.com/patrickmn/go-cache",
     "github.com/satori/go.uuid",

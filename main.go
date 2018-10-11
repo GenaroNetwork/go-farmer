@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"time"
 
 	"github.com/boltdb/bolt"
 )
@@ -75,6 +76,11 @@ func main() {
 	handler.HandleFunc(regexp.MustCompile(`^/$`), RootHandler(node))
 	handler.HandleFunc(regexp.MustCompile(`^/shards/\w+$`), ShardHandler())
 
-	err = http.ListenAndServe(":"+Cfg.GetLocalPortStr(), handler)
+	server := &http.Server{
+		Addr:        ":" + Cfg.GetLocalPortStr(),
+		Handler:     handler,
+		IdleTimeout: 1 * time.Second,
+	}
+	err = server.ListenAndServe()
 	log.Printf("[HTTP] listen error ERROR=%v\n", err)
 }

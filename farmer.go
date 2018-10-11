@@ -16,7 +16,7 @@ import (
 
 	"github.com/GenaroNetwork/go-farmer/crypto"
 	"github.com/GenaroNetwork/go-farmer/msg"
-	"github.com/NebulousLabs/go-upnp"
+	"github.com/ethereum/go-ethereum/p2p/nat"
 	"github.com/patrickmn/go-cache"
 	"github.com/satori/go.uuid"
 	"golang.org/x/crypto/ripemd160"
@@ -168,28 +168,14 @@ func (f *Farmer) HeartBeat() {
 
 	if joinSucc == false {
 		// port-forwarding
-		log.Println("[HEARTBEAT] try upnp port-forwarding")
-		igd, err := upnp.Discover()
+		log.Println("[HEARTBEAT] try upnp/pmp port-forwarding")
+		natm := nat.Any()
+		ip, err := natm.ExternalIP()
 		if err != nil {
-			log.Fatalf("[HEARTBEAT] discover device failed ERROR=%v\n", err)
+			log.Fatalln("[HEARTBEAT] get external ip failed")
 		}
-
-		ip, err := igd.ExternalIP()
-		if err != nil {
-			log.Fatalf("[HEARTBEAT] get external ip failed ERROR=%v\n", err)
-		}
-		f.contact.Address = ip
-
-		err = igd.Forward(Cfg.localPort, "Genaro Sharer")
-		if err != nil {
-			log.Fatalf("[HEARTBEAT] port-forwarding failed ERROR=%v\n", err)
-		}
-		defer func() {
-			err := igd.Clear(Cfg.localPort)
-			if err != nil {
-				log.Printf("[HEARTBEAT] clear port-forwarding failed ERROR=%v\n", err)
-			}
-		}()
+		f.contact.Address = ip.String()
+		go f._map(natm, nil, "TCP", int(Cfg.localPort), int(Cfg.localPort), "Genaro Sharer")
 
 		// try join network
 		joinSucc := f.doJoinNetwork()
@@ -229,6 +215,36 @@ func (f *Farmer) doJoinNetwork() (joinSucc bool) {
 		log.Println("[HEARTBEAT] try join network failed")
 	}
 	return
+}
+
+func (f *Farmer) _map(m nat.Interface, stop chan struct{}, protocol string, extport, intport int, name string) {
+	const mapUpdateInterval = 15 * time.Minute
+	const mapTimeout = 20 * time.Minute
+	refresh := time.NewTimer(mapUpdateInterval)
+	defer func() {
+		refresh.Stop()
+		log.Println("[PORT_MAPPING] Deleting port mapping")
+		_ = m.DeleteMapping(protocol, extport, intport)
+	}()
+	if err := m.AddMapping(protocol, extport, intport, name, mapTimeout); err != nil {
+		log.Printf("[PORT_MAPPING] Couldn't add port mapping ERROR=%v", err)
+		return
+	}
+	log.Println("[PORT_MAPPING] Mapped network port")
+	for {
+		select {
+		case _, ok := <-stop:
+			if !ok {
+				return
+			}
+		case <-refresh.C:
+			log.Println("[PORT_MAPPING] Refreshing port mapping")
+			if err := m.AddMapping(protocol, extport, intport, name, mapTimeout); err != nil {
+				log.Printf("[PORT_MAPPING] Couldn't add port mapping ERROR=%v", err)
+			}
+			refresh.Reset(mapUpdateInterval)
+		}
+	}
 }
 
 ///////////////
