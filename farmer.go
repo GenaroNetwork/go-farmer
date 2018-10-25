@@ -8,18 +8,23 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"os"
 	"path"
 	"strconv"
+	"syscall"
 	"time"
 
+	"github.com/GenaroNetwork/go-farmer/config"
 	"github.com/GenaroNetwork/go-farmer/crypto"
 	"github.com/GenaroNetwork/go-farmer/msg"
+	"github.com/ethereum/go-ethereum/accounts/keystore"
 	"github.com/ethereum/go-ethereum/p2p/nat"
 	"github.com/patrickmn/go-cache"
 	"github.com/satori/go.uuid"
 	"golang.org/x/crypto/ripemd160"
+	"golang.org/x/crypto/ssh/terminal"
 )
 
 var contractCache *cache.Cache
@@ -41,17 +46,46 @@ type Farmer struct {
 	privateKey crypto.PrivateKey
 }
 
-func (f *Farmer) Init(config Config) error {
+func (f *Farmer) Init(config config.Config) error {
+	if err := f.doLoadKeyfile(config.KeyFile); err != nil {
+		return err
+	}
+	nodeId, err := f.privateKey.NodeId()
+	if err != nil {
+		return err
+	}
 	f.SetContact(msg.Contact{
 		Address:  Cfg.GetLocalAddr(),
-		Port:     Cfg.GetLocalPortNum(),
-		NodeID:   Cfg.NodeId,
+		Port:     Cfg.GetLocalPort(),
+		NodeID:   nodeId,
 		Protocol: "1.2.0-local",
 	})
-	pk := crypto.PrivateKey{}
-	pk.FromHexStr(Cfg.NodePrivateKey)
-	f.SetPrivateKey(pk)
 	return nil
+}
+func (f *Farmer) doLoadKeyfile(path string) error {
+	rawKeyfile, err := ioutil.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	const tryN = 3
+	var rawPass []byte
+	var key *keystore.Key
+	for i := 0; i < tryN; i += 1 {
+		fmt.Print("Please input password: ")
+		rawPass, err = terminal.ReadPassword(int(syscall.Stdin))
+		fmt.Println()
+		if err != nil {
+			continue
+		}
+		pass := string(rawPass)
+		key, err = keystore.DecryptKey(rawKeyfile, pass)
+		if err != nil {
+			continue
+		}
+		f.privateKey = crypto.PrivateKey{Key: key.PrivateKey}
+		return nil
+	}
+	return err
 }
 
 func (f *Farmer) Contact() msg.Contact {
@@ -64,6 +98,7 @@ func (f *Farmer) SetContact(contact msg.Contact) {
 func (f *Farmer) PrivateKey() crypto.PrivateKey {
 	return f.privateKey
 }
+
 func (f *Farmer) SetPrivateKey(pk crypto.PrivateKey) {
 	f.privateKey = pk
 }
@@ -175,7 +210,7 @@ func (f *Farmer) HeartBeat() {
 			log.Fatalln("[HEARTBEAT] get external ip failed")
 		}
 		f.contact.Address = ip.String()
-		go f._map(natm, nil, "TCP", int(Cfg.localPort), int(Cfg.localPort), "Genaro Sharer")
+		go f._map(natm, nil, "TCP", int(Cfg.GetLocalPort()), int(Cfg.GetLocalPort()), "Genaro Sharer")
 
 		// try join network
 		joinSucc := f.doJoinNetwork()

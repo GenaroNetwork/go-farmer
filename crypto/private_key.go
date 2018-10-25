@@ -1,28 +1,36 @@
 package crypto
 
 import (
+	"crypto/ecdsa"
 	"encoding/hex"
+	"errors"
 	"log"
 
-	"github.com/ethereum/go-ethereum/crypto/secp256k1"
+	"github.com/ethereum/go-ethereum/crypto"
 )
 
 type PrivateKey struct {
-	key []byte
+	Key *ecdsa.PrivateKey
 }
 
-func (pk *PrivateKey) FromHexStr(hs string) *PrivateKey {
-	h, _ := hex.DecodeString(hs)
-	pk.key = h
-	return pk
+func (pk *PrivateKey) NodeId() (string, error) {
+	xs := pk.Key.PublicKey.X.Bytes()
+	if len(xs) != 32 {
+		return "", errors.New("incorrect public key")
+	}
+	ret0 := uint8(3)
+	if pk.Key.PublicKey.Y.Bit(0) == 0 {
+		ret0 = 2
+	}
+	nodeId := make([]byte, 33)
+	nodeId[0] = ret0
+	copy(nodeId[1:], xs)
+	nodeId = Ripemd160Sha256(nodeId)
+	return hex.EncodeToString(nodeId), nil
 }
 
-func (pk *PrivateKey) Bytes() []byte {
-	return pk.key
-}
-
-func (pk *PrivateKey) Sign(msg []byte) []byte {
-	s, err := secp256k1.Sign(msg, pk.Bytes())
+func (pk *PrivateKey) Sign(hash []byte) []byte {
+	s, err := crypto.Sign(hash, pk.Key)
 	if err != nil {
 		log.Printf("[CRYPTO SECP256K1] sign error ERROR=%v\n", err)
 		return nil

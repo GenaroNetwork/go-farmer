@@ -1,4 +1,4 @@
-package main
+package config
 
 import (
 	"encoding/hex"
@@ -14,18 +14,18 @@ import (
 )
 
 type Config struct {
-	LocalAddr      string   `json:"local_addr"`
-	NodePrivateKey string   `json:"node_private_key"`
-	NodeId         string   `json:"node_id"`
-	DataDir        string   `json:"data_dir"`
-	SeedList       []string `json:"seed_list"`
+	LocalAddr string   `json:"local_addr"`
+	KeyFile   string   `json:"keyfile"`
+	DataDir   string   `json:"data_dir"`
+	SeedList  []string `json:"seed_list"`
+	LogFile   string   `json:"log_file"`
 
 	localIP   string
 	localPort uint16
 	seedList  []msg.Contact
 }
 
-func (c *Config) GetLocalPortNum() uint16 {
+func (c *Config) GetLocalPort() uint16 {
 	return c.localPort
 }
 
@@ -50,23 +50,22 @@ func (c *Config) Parse() error {
 	c.localPort = port
 	c.localIP = ip.String()
 
-	// validate node private key
-	if err := isValidHexStr(c.NodePrivateKey); err != nil {
-		return fmt.Errorf("node_private_key invalid: %v", err)
+	// check if keyfile exists
+	fInfo, err := os.Stat(c.KeyFile)
+	if os.IsNotExist(err) {
+		return errors.New("keyfile not exist")
 	}
-
-	// validate node id
-	if err := isValidHexStr(c.NodeId); err != nil {
-		return fmt.Errorf("node_id invalid: %v", err)
+	if fInfo.IsDir() {
+		return errors.New("keyfile is a directory")
 	}
 
 	// validate data dir
 	if c.DataDir == "" {
 		return errors.New("data_dir is empty")
 	}
-	fInfo, err := os.Stat(c.DataDir)
+	fInfo, err = os.Stat(c.DataDir)
 	if os.IsNotExist(err) {
-		return errors.New("data dir not exists")
+		return errors.New("data dir not exist")
 	}
 	if fInfo.IsDir() == false {
 		return errors.New("data dir is not directory")
@@ -129,6 +128,8 @@ func (c *Config) GetContractDBPath() string {
 func (c *Config) GetShardsPath() string {
 	return path.Join(c.DataDir, "shards")
 }
+
+/************* functions ***************/
 
 // http://127.0.0.1:8080 => (http://, 127.0.0.1:8080)
 func splitScheme(addr string) (scheme string, other string, succ bool) {
