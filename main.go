@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -9,10 +10,14 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"strings"
+	"syscall"
 	"time"
 
 	"github.com/GenaroNetwork/go-farmer/config"
 	"github.com/boltdb/bolt"
+	"github.com/ethereum/go-ethereum/accounts/keystore"
+	"golang.org/x/crypto/ssh/terminal"
 )
 
 const MagicBytes = "Bitcoin Signed Message:\n"
@@ -33,12 +38,12 @@ See "go-farmer help <command>" for information on a specific command.
 	/* start command */
 	startCmd := flag.NewFlagSet("start", flag.ExitOnError)
 	// -config
-	cPath := startCmd.String("config", "./config.json", "config file path")
+	sConfigPath := startCmd.String("config", "./config.json", "config file path")
 
 	/* new-account command */
 	newAccountCmd := flag.NewFlagSet("new-account", flag.ExitOnError)
 	// -path
-	newAccountCmd.String("path", "./", "keyfile path")
+	sKeyfilePath := newAccountCmd.String("path", "./", "directory where keyfile will be generated")
 
 	if len(os.Args) == 1 {
 		fmt.Print(helpMsg)
@@ -48,9 +53,10 @@ See "go-farmer help <command>" for information on a specific command.
 	switch os.Args[1] {
 	case "start":
 		_ = startCmd.Parse(os.Args[2:])
-		parseConfigFile(cPath)
+		parseConfigFile(sConfigPath)
 	case "new-account":
 		_ = newAccountCmd.Parse(os.Args[2:])
+		doCreateKeyfile(sKeyfilePath)
 		os.Exit(0)
 	case "help":
 		if len(os.Args) != 3 {
@@ -71,6 +77,46 @@ See "go-farmer help <command>" for information on a specific command.
 		fmt.Print(helpMsg)
 		os.Exit(2)
 	}
+}
+
+func doCreateKeyfile(cKeyfilePath *string) {
+	// read password
+	fmt.Print("Please enter password: ")
+	pass0, err := terminal.ReadPassword(int(syscall.Stdin))
+	if err != nil {
+		fmt.Printf("Read password error: %v\n", err)
+		os.Exit(2)
+	}
+	fmt.Println()
+	sPass0 := strings.TrimSpace(string(pass0))
+	if len(pass0) == 0 {
+		fmt.Println("Empty password disallowed.")
+		os.Exit(2)
+	}
+
+	// read confirm password
+	fmt.Print("Please enter confirm password: ")
+	pass1, err := terminal.ReadPassword(int(syscall.Stdin))
+	if err != nil {
+		fmt.Printf("Read password error: %v\n", err)
+		os.Exit(2)
+	}
+	fmt.Println()
+
+	// check confirm password
+	if bytes.Equal(pass0, pass1) == false {
+		fmt.Println("Your password and confirmation password do not match.")
+		os.Exit(2)
+	}
+
+	// generate keyfile
+	address, err := keystore.StoreKey(*cKeyfilePath, sPass0, keystore.StandardScryptN, keystore.StandardScryptP)
+	if err != nil {
+		fmt.Printf("Generate key failed: %v\n", err)
+		os.Exit(2)
+	}
+	fmt.Printf("Keyfile generated.\nAddress: %v\n", address.String())
+	os.Exit(0)
 }
 
 func parseConfigFile(cPath *string) {
