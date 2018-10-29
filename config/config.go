@@ -73,7 +73,7 @@ func (c *Config) Parse() error {
 	shardPath := path.Join(c.DataDir, "shards")
 	fInfo, err = os.Stat(shardPath)
 	if os.IsNotExist(err) {
-		err := os.Mkdir(shardPath, 0666)
+		err := os.Mkdir(shardPath, 0700)
 		if err != nil {
 			return fmt.Errorf("create shards dir failed: %v", err)
 		}
