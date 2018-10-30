@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"regexp"
 	"strings"
 	"syscall"
@@ -185,6 +187,19 @@ func main() {
 		Handler:     handler,
 		IdleTimeout: 1 * time.Second,
 	}
-	err = server.ListenAndServe()
-	log.Printf("[HTTP] listen error ERROR=%v\n", err)
+
+	// for graceful shutdown http server
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt)
+
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("[HTTP] listen error ERROR=%v\n", err)
+		}
+	}()
+
+	<-stop
+	log.Println("\nShutting down the server...")
+	ctx, _ := context.WithTimeout(context.Background(), time.Minute)
+	_ = server.Shutdown(ctx)
 }
