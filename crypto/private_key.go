@@ -6,31 +6,42 @@ import (
 	"errors"
 	"log"
 
-	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/common/math"
+	"github.com/ethereum/go-ethereum/crypto/secp256k1"
 )
 
 type PrivateKey struct {
-	Key *ecdsa.PrivateKey
+	nodeId string
+	seckey []byte
 }
 
-func (pk *PrivateKey) NodeId() (string, error) {
-	xs := pk.Key.PublicKey.X.Bytes()
+func (pk *PrivateKey) SetKey(key *ecdsa.PrivateKey) error {
+	// nodeId
+	xs := key.PublicKey.X.Bytes()
 	if len(xs) != 32 {
-		return "", errors.New("incorrect public key")
+		return errors.New("incorrect public key")
 	}
 	ret0 := uint8(3)
-	if pk.Key.PublicKey.Y.Bit(0) == 0 {
+	if key.PublicKey.Y.Bit(0) == 0 {
 		ret0 = 2
 	}
 	nodeId := make([]byte, 33)
 	nodeId[0] = ret0
 	copy(nodeId[1:], xs)
 	nodeId = Ripemd160Sha256(nodeId)
-	return hex.EncodeToString(nodeId), nil
+	pk.nodeId = hex.EncodeToString(nodeId)
+
+	// seckey
+	pk.seckey = math.PaddedBigBytes(key.D, key.Params().BitSize/8)
+	return nil
+}
+
+func (pk *PrivateKey) NodeId() string {
+	return pk.nodeId
 }
 
 func (pk *PrivateKey) Sign(hash []byte) []byte {
-	s, err := crypto.Sign(hash, pk.Key)
+	s, err := secp256k1.Sign(hash, pk.seckey)
 	if err != nil {
 		log.Printf("[CRYPTO SECP256K1] sign error ERROR=%v\n", err)
 		return nil

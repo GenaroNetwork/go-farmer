@@ -42,18 +42,15 @@ func init() {
 }
 
 type Farmer struct {
-	contact    msg.Contact
-	privateKey crypto.PrivateKey
+	contact msg.Contact
+	pk      crypto.PrivateKey
 }
 
 func (f *Farmer) Init(config config.Config) error {
 	if err := f.doLoadKeyfile(config.KeyFile); err != nil {
 		return err
 	}
-	nodeId, err := f.privateKey.NodeId()
-	if err != nil {
-		return err
-	}
+	nodeId := f.pk.NodeId()
 	f.SetContact(msg.Contact{
 		Address:  Cfg.GetLocalAddr(),
 		Port:     Cfg.GetLocalPort(),
@@ -82,7 +79,10 @@ func (f *Farmer) doLoadKeyfile(path string) error {
 		if err != nil {
 			continue
 		}
-		f.privateKey = crypto.PrivateKey{Key: key.PrivateKey}
+		err = f.pk.SetKey(key.PrivateKey)
+		if err != nil {
+			continue
+		}
 		return nil
 	}
 	return err
@@ -96,11 +96,11 @@ func (f *Farmer) SetContact(contact msg.Contact) {
 }
 
 func (f *Farmer) PrivateKey() crypto.PrivateKey {
-	return f.privateKey
+	return f.pk
 }
 
 func (f *Farmer) SetPrivateKey(pk crypto.PrivateKey) {
-	f.privateKey = pk
+	f.pk = pk
 }
 
 func (f *Farmer) Sign(m IMessage) {
