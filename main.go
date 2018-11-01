@@ -10,7 +10,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"os/signal"
 	"regexp"
 	"strings"
 	"syscall"
@@ -19,6 +18,7 @@ import (
 	"github.com/GenaroNetwork/go-farmer/config"
 	"github.com/boltdb/bolt"
 	"github.com/ethereum/go-ethereum/accounts/keystore"
+	ui "github.com/gizak/termui"
 	"golang.org/x/crypto/ssh/terminal"
 )
 
@@ -177,7 +177,6 @@ func main() {
 		log.Fatalf("[MAIN] node init failed ERROR=%v\n", err)
 	}
 
-	go node.HeartBeat()
 	handler := &RegexpHandler{}
 	handler.HandleFunc(regexp.MustCompile(`^/$`), RootHandler(node))
 	handler.HandleFunc(regexp.MustCompile(`^/shards/\w+$`), ShardHandler())
@@ -188,17 +187,36 @@ func main() {
 		IdleTimeout: 1 * time.Second,
 	}
 
-	// for graceful shutdown http server
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, os.Interrupt)
-
+	// start server
+	stopServer := make(chan struct{}, 1)
 	go func() {
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Printf("[HTTP] listen error ERROR=%v\n", err)
+			stopServer <- struct{}{}
 		}
 	}()
 
-	<-stop
+	// start terminal ui
+	stopUi := make(chan struct{}, 1)
+	go func() {
+		err := UiSetup()
+		if err != nil {
+			log.Printf("[TERMINAL] init failed ERROR=%v\n", err)
+		}
+		stopUi <- struct{}{}
+	}()
+
+	// heartbeat
+	go node.HeartBeat()
+
+	// wait
+	select {
+	case <-stopServer:
+		ui.StopLoop()
+	case <-stopUi:
+	}
+
+	// shutdown server gracefully
 	log.Println("\nShutting down the server...")
 	ctx, _ := context.WithTimeout(context.Background(), time.Minute)
 	_ = server.Shutdown(ctx)
