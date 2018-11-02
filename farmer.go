@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"os"
 	"path"
 	"strconv"
@@ -21,6 +20,7 @@ import (
 	"github.com/GenaroNetwork/go-farmer/msg"
 	"github.com/ethereum/go-ethereum/accounts/keystore"
 	"github.com/ethereum/go-ethereum/p2p/nat"
+	log "github.com/inconshreveable/log15"
 	"github.com/patrickmn/go-cache"
 	"github.com/satori/go.uuid"
 	"golang.org/x/crypto/ripemd160"
@@ -29,6 +29,7 @@ import (
 
 var contractCache *cache.Cache
 var mirrorCache *cache.Cache
+var logger log.Logger
 
 type storageItem struct {
 	Contract msg.Contract `json:"contract"`
@@ -57,6 +58,8 @@ func (f *Farmer) Init(config config.Config) error {
 		NodeID:   nodeId,
 		Protocol: "1.2.0-local",
 	})
+
+	logger = log.New("module", "farmer")
 	return nil
 }
 func (f *Farmer) doLoadKeyfile(path string) error {
@@ -161,11 +164,11 @@ func (f *Farmer) ProcessMsgInOut(m *MsgInOut) {
 	default:
 		// print unknown message
 		if msgStruct != nil {
-			log.Printf("[UNKNOWN] MESSAGE=%v\n", msgStruct)
+			logger.Warn("unknown message", "subject", "message", "message", JsonMarshal(msgStruct))
 		} else if len(m.MsgInMap()) != 0 {
-			log.Printf("[UNKNOWN] MESSAGE=%v\n", m.MsgInMap())
+			logger.Warn("unknown message", "subject", "message", "message", JsonMarshal(m.MsgInMap()))
 		} else {
-			log.Printf("[UNKNOWN] MESSAGE=%v\n", string(m.MsgInRaw()))
+			logger.Warn("unknown message", "subject", "message", "message", string(m.MsgInRaw()))
 		}
 		// get id
 		id, okId := m.MsgInMap()["id"]
@@ -203,11 +206,11 @@ func (f *Farmer) HeartBeat() {
 
 	if joinSucc == false {
 		// port-forwarding
-		log.Println("[HEARTBEAT] try upnp/pmp port-forwarding")
+		logger.Warn("try upnp/pmp port-forwarding", "subject", "heartbeat")
 		natm := nat.Any()
 		ip, err := natm.ExternalIP()
 		if err != nil {
-			log.Fatalln("[HEARTBEAT] get external ip failed")
+			logger.Warn("get external ip failed", "subject", "heartbeat")
 		}
 		f.contact.Address = ip.String()
 		go f._map(natm, nil, "TCP", int(Cfg.GetLocalPort()), int(Cfg.GetLocalPort()), "Genaro Sharer")
@@ -215,10 +218,10 @@ func (f *Farmer) HeartBeat() {
 		// try join network
 		joinSucc := f.doJoinNetwork()
 		if joinSucc == false {
-			log.Fatal("[HEARTBEAT] join network by port-forwarding failed")
+			logger.Warn("join network by port-forwarding failed", "subject", "heartbeat")
 		}
 	}
-	log.Println("[HEARTBEAT] join network success")
+	logger.Info("join network success", "subject", "heartbeat")
 
 	// probe periodically
 	failCount := 0
@@ -230,7 +233,8 @@ func (f *Farmer) HeartBeat() {
 			failCount = 0
 		}
 		if failCount >= 10 {
-			log.Fatal("[HEARTBEAT] disconnected from network")
+			logger.Crit("disconnected from network", "subject", "heartbeat")
+			return
 		}
 	}
 }
@@ -240,32 +244,33 @@ func (f *Farmer) doJoinNetwork() (joinSucc bool) {
 	for _, seed := range Cfg.GetSeedList() {
 		err := f.probe(seed)
 		if err != nil {
-			log.Printf("[HEARTBEAT] try join network PEER=%v ERROR=%v\n", seed.NodeID, err)
+			logger.Info("try join network", "subject", "network", "peer", seed.NodeID, "error", err)
 			continue
 		}
 		joinSucc = true
 		break
 	}
 	if joinSucc == false {
-		log.Println("[HEARTBEAT] try join network failed")
+		logger.Warn("try join network failed", "subject", "network")
 	}
 	return
 }
 
 func (f *Farmer) _map(m nat.Interface, stop chan struct{}, protocol string, extport, intport int, name string) {
+	logger := logger.New("subject", "network")
 	const mapUpdateInterval = 15 * time.Minute
 	const mapTimeout = 20 * time.Minute
 	refresh := time.NewTimer(mapUpdateInterval)
 	defer func() {
 		refresh.Stop()
-		log.Println("[PORT_MAPPING] Deleting port mapping")
+		logger.Info("Deleting port mapping")
 		_ = m.DeleteMapping(protocol, extport, intport)
 	}()
 	if err := m.AddMapping(protocol, extport, intport, name, mapTimeout); err != nil {
-		log.Printf("[PORT_MAPPING] Couldn't add port mapping ERROR=%v", err)
+		logger.Info("Couldn't add port mapping", "error", err)
 		return
 	}
-	log.Println("[PORT_MAPPING] Mapped network port")
+	log.Info("Mapped network port", )
 	for {
 		select {
 		case _, ok := <-stop:
@@ -273,9 +278,9 @@ func (f *Farmer) _map(m nat.Interface, stop chan struct{}, protocol string, extp
 				return
 			}
 		case <-refresh.C:
-			log.Println("[PORT_MAPPING] Refreshing port mapping")
+			logger.Info("Refreshing port mapping")
 			if err := m.AddMapping(protocol, extport, intport, name, mapTimeout); err != nil {
-				log.Printf("[PORT_MAPPING] Couldn't add port mapping ERROR=%v", err)
+				logger.Info("Couldn't add port mapping", "error", err)
 			}
 			refresh.Reset(mapUpdateInterval)
 		}
@@ -286,7 +291,7 @@ func (f *Farmer) _map(m nat.Interface, stop chan struct{}, protocol string, extp
 // do request
 ///////////////
 func (f *Farmer) ping(contact msg.Contact) error {
-	log.Printf("[PING] PEER=%v\n", contact.NodeID)
+	logger := logger.New("subject", "ping")
 	msgPing := msg.Ping{
 		JsonRpc: "2.0",
 		Method:  msg.MPing,
@@ -302,15 +307,15 @@ func (f *Farmer) ping(contact msg.Contact) error {
 		return nil
 	})
 	if err != nil {
-		log.Printf("[PING] fail PEER=%v ERROR=%v\n", contact.NodeID, err)
+		logger.Warn("ping failed", "peer", contact.NodeID, "error", err)
 	} else {
-		log.Printf("[PING] success PEER=%v\n", contact.NodeID)
+		logger.Info("ping success", "peer", contact.NodeID)
 	}
 	return err
 }
 
 func (f *Farmer) probe(contact msg.Contact) error {
-	log.Printf("[PROBE] PEER=%v\n", contact.NodeID)
+	logger := logger.New("subject", "probe")
 	msgProbe := msg.Probe{
 		JsonRpc: "2.0",
 		Method:  msg.MProbe,
@@ -326,14 +331,15 @@ func (f *Farmer) probe(contact msg.Contact) error {
 		return nil
 	})
 	if err != nil {
-		log.Printf("[PROBE] PEER=%v ERROR=%v\n", contact.NodeID, err)
+		logger.Warn("probe failed", "peer", contact.NodeID, "error", err)
 	} else {
-		log.Printf("[PROBE] success PEER=%v\n", contact.NodeID)
+		logger.Info("probe success", "peer", contact.NodeID)
 	}
 	return err
 }
 
 func (f *Farmer) findNode(contact msg.Contact) {
+	logger := logger.New("subject", "find_node")
 	msgFindNode := msg.FindNode{
 		JsonRpc: "2.0",
 		Method:  msg.MFindNode,
@@ -350,13 +356,14 @@ func (f *Farmer) findNode(contact msg.Contact) {
 		return nil
 	})
 	if err != nil {
-		log.Printf("[FIND_NODE] PEER=%v ERROR=%v\n", contact.NodeID, err)
+		logger.Warn("find_node failed", "peer", contact.NodeID, "error", err)
 	} else {
-		log.Printf("[FIND_NODE] success PEER=%v\n", contact.NodeID)
+		logger.Info("find_node success", "peer", contact.NodeID)
 	}
 }
 
 func (f *Farmer) offer(contact msg.Contact, c msg.Contract) {
+	logger := logger.New("subject", "offer")
 	msgOffer := msg.Offer{
 		JsonRpc: "2.0",
 		Method:  msg.MOffer,
@@ -373,7 +380,7 @@ func (f *Farmer) offer(contact msg.Contact, c msg.Contract) {
 		msgInStruct := msgInOut.MsgInStruct()
 		switch msgInStruct.(type) {
 		case *msg.ResErr:
-			log.Printf("[OFFER] error RESP=%v\n", msgInStruct)
+			logger.Warn("offer error", "message", JsonMarshal(msgInStruct))
 			msgResErr := msgInStruct.(*msg.ResErr)
 			return errors.New(msgResErr.Error.Message)
 		case *msg.OfferRes:
@@ -402,9 +409,9 @@ func (f *Farmer) offer(contact msg.Contact, c msg.Contract) {
 		}
 	})
 	if err != nil {
-		log.Printf("[OFFER] send offer error DATA_HASH=%v ERROR=%v\n", c.DataHash, err)
+		logger.Warn("offer error", "data_hash", c.DataHash, "error", err)
 	} else {
-		log.Printf("[OFFER] success DATA_HASH=%v\n", c.DataHash)
+		logger.Info("offer success", "data_hash", c.DataHash)
 	}
 }
 
@@ -424,11 +431,13 @@ func (f *Farmer) _generalRes(m *MsgInOut) IMessage {
 func (f *Farmer) onPing(m *MsgInOut) IMessage {
 	msgPing := m.MsgInStruct().(*msg.Ping)
 	contact := msgPing.Params.Contact
-	log.Printf("[ON PING] PEER=%v IP=%v\n", contact.NodeID, contact.Address)
+	logger.Info("on ping", "subject", "on ping", "peer", contact.NodeID, "ip", contact.Address)
 	return f._generalRes(m)
 }
 
 func (f *Farmer) onProbe(m *MsgInOut) IMessage {
+	logger := logger.New("subject", "on probe")
+
 	msgProbe := m.MsgInStruct().(*msg.Probe)
 	contact := msgProbe.Params.Contact
 	chanProbeSucc := make(chan error)
@@ -437,7 +446,7 @@ func (f *Farmer) onProbe(m *MsgInOut) IMessage {
 		chanProbeSucc <- err
 	}()
 	if err := <-chanProbeSucc; err != nil {
-		log.Printf("[ON PROBE] fail PEER=%v ERROR=%v\n", contact.NodeID, err)
+		logger.Warn("on probe failed", "peer", contact.NodeID, "error", err)
 		return &msg.ResErr{
 			Res: msg.Res{
 				Result: msg.ResResult{
@@ -450,11 +459,13 @@ func (f *Farmer) onProbe(m *MsgInOut) IMessage {
 			},
 		}
 	}
-	log.Printf("[ON PROBE] success PEER=%v\n", contact.NodeID)
+	logger.Info("on probe success", "peer", contact.NodeID)
 	return f._generalRes(m)
 }
 
 func (f *Farmer) onPublish(m *MsgInOut) IMessage {
+	logger := logger.New("subject", "on publish")
+
 	doOffer := true
 	msgPublish := m.MsgInStruct().(*msg.Publish)
 	_uuid := msgPublish.Params.Uuid
@@ -465,13 +476,13 @@ func (f *Farmer) onPublish(m *MsgInOut) IMessage {
 	if contract.IsValid() == false {
 		return f._generalRes(m)
 	}
-	log.Printf("[PUBLISH] DATA_HASH=%v UUID=%v\n", _dataHash, _uuid)
+	logger.Info("", "uuid", _uuid, "data_hash", _dataHash)
 
 	// if already processed
 	// check data_hash
 	_, okDataHash := contractCache.Get(_dataHash)
 	if okDataHash {
-		log.Printf("[PUBLISH] already processed UUID=%v DATA_HASH=%v\n", _uuid, _dataHash)
+		logger.Info("already processed", "uuid", _uuid, "data_hash", _dataHash)
 		doOffer = false
 	}
 
@@ -489,6 +500,8 @@ func (f *Farmer) onPublish(m *MsgInOut) IMessage {
 }
 
 func (f *Farmer) onFindNode(m *MsgInOut) IMessage {
+	logger := logger.New("subject", "on find_node")
+
 	c := f.Contact()
 	res := msg.FindNodeRes{
 		Result: msg.FindNodeResResult{
@@ -499,7 +512,7 @@ func (f *Farmer) onFindNode(m *MsgInOut) IMessage {
 
 	msgFindNode := m.MsgInStruct().(*msg.FindNode)
 	peer := msgFindNode.Params.Contact
-	log.Printf("[ON FIND_NODE] PEER=%v\n", peer.NodeID)
+	logger.Info("on find_node", "peer", peer.NodeID)
 	return &res
 }
 
@@ -516,6 +529,8 @@ func (f *Farmer) onFindNode(m *MsgInOut) IMessage {
 //}
 
 func (f *Farmer) onConsign(m *MsgInOut) IMessage {
+	logger := logger.New("subject", "on consign")
+
 	// verify trees
 	msgConsign := m.MsgInStruct().(*msg.Consign)
 	trees := msgConsign.Params.AuditTree
@@ -586,7 +601,7 @@ func (f *Farmer) onConsign(m *MsgInOut) IMessage {
 	token := hex.EncodeToString(uuid.NewV4().Bytes())
 	err = BoltDbSet([]byte(token), []byte{}, BucketToken, false)
 	if err != nil {
-		log.Printf("[ON CONSIGN] save token error DATA_HASH=%v ERROR=%v\n", dataHash, err)
+		logger.Warn("save token error", "data_hash", dataHash, "error", err)
 		return &msg.ResErr{
 			Res: msg.Res{
 				Result: msg.ResResult{
@@ -599,7 +614,7 @@ func (f *Farmer) onConsign(m *MsgInOut) IMessage {
 			},
 		}
 	} else {
-		log.Printf("[ON CONSIGN] token saved DATA_HASH=%v TOKEN=%v\n", dataHash, token)
+		logger.Info("token saved", "data_hash", dataHash, "token", token)
 	}
 
 	// save trees
@@ -608,7 +623,7 @@ func (f *Farmer) onConsign(m *MsgInOut) IMessage {
 	js, _ := json.Marshal(sItem)
 	err = BoltDbSet([]byte(dataHash), js, BucketContract, true)
 	if err != nil {
-		log.Printf("[ON CONSIGN] save audit trees error DATA_HASH=%v ERROR=%v\n", dataHash, err)
+		logger.Warn("save audit trees error", "data_hash", dataHash, "error", err)
 		return &msg.ResErr{Res: msg.Res{
 			Result: msg.ResResult{
 				Contact: f.Contact(),
@@ -629,11 +644,13 @@ func (f *Farmer) onConsign(m *MsgInOut) IMessage {
 			Contact: c,
 		},
 	}
-	log.Printf("[ON CONSIGN] success DATA_HASH=%v TOKEN=%v\n", dataHash, token)
+	logger.Info("success", "data_hash", dataHash, "token", token)
 	return &res
 }
 
 func (f *Farmer) onRetrieve(m *MsgInOut) IMessage {
+	logger := logger.New("subject", "on retrieve")
+
 	// TODO: shard exist?
 	msgRetrieve := m.MsgInStruct().(*msg.Retrieve)
 	dataHash := msgRetrieve.Params.DataHash
@@ -647,20 +664,22 @@ func (f *Farmer) onRetrieve(m *MsgInOut) IMessage {
 	}
 	err := BoltDbSet([]byte(token), []byte{}, BucketToken, false)
 	if err != nil {
-		log.Printf("[ON RETRIEVE] save token error DATA_HASH=%v ERROR=%v\n", dataHash, err)
+		logger.Warn("save token error", "data_hash", dataHash, "error", err)
 	} else {
-		log.Printf("[ON RETRIEVE] saved token DATA_HASH=%v TOKEN=%v\n", dataHash, token)
+		logger.Info("saved token", "data_hash", dataHash, "token", token)
 	}
 	return &res
 }
 
 func (f *Farmer) onMirror(m *MsgInOut) IMessage {
+	logger := logger.New("subject", "on mirror")
+
 	msgMirror := m.MsgInStruct().(*msg.Mirror)
 	// if already processed
 	dataHash := msgMirror.Params.DataHash
 	_, okDataHash := mirrorCache.Get(dataHash)
 	if okDataHash {
-		log.Printf("[ON MIRROR] message already processed DATA_HASH=%v\n", dataHash)
+		logger.Warn("message already processed", "data_hash", dataHash)
 		return f._generalRes(m)
 	}
 	mirrorCache.Set(dataHash, nil, time.Second*30)
@@ -668,7 +687,7 @@ func (f *Farmer) onMirror(m *MsgInOut) IMessage {
 	// if contract exist
 	sItemRaw, err := BoltDbGet([]byte(dataHash), BucketContract)
 	if err != nil {
-		log.Printf("[ON MIRROR] no signed contract DATA_HASH=%v ERROR=%v\n", dataHash, err)
+		logger.Info("no signed contract", "data_hash", dataHash, "error", err)
 		return msg.NewResErr(f.Contact(), "no signed contract")
 	}
 
@@ -676,12 +695,12 @@ func (f *Farmer) onMirror(m *MsgInOut) IMessage {
 	var sItem storageItem
 	err = json.Unmarshal(sItemRaw, &sItem)
 	if err != nil {
-		log.Printf("[ON MIRROR] sItem bad format DATA_HASH=%v ERROR=%v\n", dataHash, err)
+		logger.Info("sItem bad format", "data_hash", dataHash, "error", err)
 		return msg.NewResErr(f.Contact(), "sItem bad format")
 	}
 	trees := msgMirror.Params.AuditTree
 	if sItem.Contract.AuditCount != len(trees) {
-		log.Printf("[ON MIRROR] audit trees length != audit count DATA_HASH=%v\n", dataHash)
+		logger.Info("audit trees length != audit count", "data_hash", dataHash)
 		return msg.NewResErr(f.Contact(), "mirror message bad format")
 	}
 
@@ -689,15 +708,15 @@ func (f *Farmer) onMirror(m *MsgInOut) IMessage {
 	fPath := path.Join(Cfg.GetShardsPath(), dataHash)
 	_, err = os.Stat(fPath)
 	if os.IsExist(err) {
-		log.Printf("[ON MIRROR] shard already exist DATA_HASH=%v\n", dataHash)
+		logger.Warn("shard already exist", "data_hash", dataHash)
 		return f._generalRes(m)
 	}
 
 	// TODO: lock contract ?
-	log.Printf("[ON MIRROR] DATA_HASH=%v\n", dataHash)
+	logger.Info("mirroring shard", "data_hash", dataHash)
 	err = DownloadShard(msgMirror.Params.Farmer, dataHash, msgMirror.Params.Token)
 	if err != nil {
-		log.Printf("[ON MIRROR] download shard error DATA_HASH=%v ERROR=%v\n", dataHash, err)
+		logger.Warn("download shard error", "data_hash", dataHash, "error", err)
 		return msg.NewResErr(f.Contact(), "mirror shard failed")
 	}
 
@@ -707,27 +726,29 @@ func (f *Farmer) onMirror(m *MsgInOut) IMessage {
 	err = BoltDbSet([]byte(dataHash), sItemRaw, BucketContract, true)
 	if err != nil {
 		// TODO: save trees failed, but have shard downloaded
-		log.Printf("[ON MIRROR] save audit trees error DATA_HASH=%v ERROR=%v\n", dataHash, err)
+		logger.Warn("save audit trees error", "data_hash", dataHash, "error", err)
 		return msg.NewResErr(f.Contact(), "internal error")
 	}
 	return f._generalRes(m)
 }
 
 func (f *Farmer) onAudit(m *MsgInOut) IMessage {
+	logger := logger.New("subject", "on audit")
+
 	// check challenge existence
 	msgAudit := m.MsgInStruct().(*msg.Audit)
 	if len(msgAudit.Params.Audits) == 0 {
-		log.Printf("[ON AUDIT] message bad format ID=%v\n", msgAudit.GetId())
+		logger.Info("message bad format", "message", JsonMarshal(msgAudit))
 		return msg.NewResErr(f.Contact(), "message bad format")
 	}
 	audit := msgAudit.Params.Audits[0]
-	log.Printf("[ON AUDIT] DATA_HASH=%v\n", audit.DataHash)
+	logger.Info("on audit", "data_hash", audit.DataHash)
 
 	// check shard existence
 	fPath := path.Join(Cfg.GetShardsPath(), audit.DataHash)
 	_, err := os.Stat(fPath)
 	if os.IsNotExist(err) {
-		log.Printf("[ON AUDIT] not shard DATA_HASH=%v\n", audit.DataHash)
+		logger.Warn("no shard", "data_hash", audit.DataHash)
 		return &msg.ResErr{
 			Res: msg.Res{
 				Result: msg.ResResult{
@@ -744,7 +765,7 @@ func (f *Farmer) onAudit(m *MsgInOut) IMessage {
 	// get trees
 	sItemRaw, err := BoltDbGet([]byte(audit.DataHash), BucketContract)
 	if err != nil {
-		log.Printf("[ON AUDIT] get sItem error DATA_HASH=%v ERROR=%v\n", audit.DataHash, err)
+		logger.Warn("get sItem error", "data_hash", audit.DataHash, "error", err)
 		return &msg.ResErr{
 			Res: msg.Res{
 				Result: msg.ResResult{
@@ -761,9 +782,9 @@ func (f *Farmer) onAudit(m *MsgInOut) IMessage {
 	err = json.Unmarshal(sItemRaw, &sItem)
 	if err != nil || len(sItem.Trees) == 0 {
 		if err != nil {
-			log.Printf("[ON AUDIT] parse sItem failed DATA_HASH=%v ERROR=%v\n", audit.DataHash, err)
+			logger.Warn("parse sItem failed", "data_hash", audit.DataHash, "error", err)
 		} else {
-			log.Printf("[ON AUDIT] audit trees length == 0 DATA_HASH=%v\n", audit.DataHash)
+			logger.Warn("audit trees length == 0", "data_hash", audit.DataHash)
 		}
 		return &msg.ResErr{
 			Res: msg.Res{
@@ -781,7 +802,7 @@ func (f *Farmer) onAudit(m *MsgInOut) IMessage {
 	// open shard for read
 	fHandle, err := os.Open(fPath)
 	if err != nil {
-		log.Printf("[ON AUDIT] open shard error DATA_HASH=%v ERROR=%v\n", audit.DataHash, err)
+		logger.Warn("open shard error", "data_hash", audit.DataHash, "error", err)
 		return &msg.ResErr{
 			Res: msg.Res{
 				Result: msg.ResResult{
@@ -800,7 +821,7 @@ func (f *Farmer) onAudit(m *MsgInOut) IMessage {
 	h := sha256.New()
 	chal, err := hex.DecodeString(audit.Challenge)
 	if err != nil {
-		log.Printf("[ON AUDIT] challenge is not hex string DATA_HASH=%v\n", audit.DataHash)
+		logger.Info("challenge is not hex string", "data_hash", audit.DataHash)
 		return &msg.ResErr{
 			Res: msg.Res{
 				Result: msg.ResResult{
@@ -815,7 +836,7 @@ func (f *Farmer) onAudit(m *MsgInOut) IMessage {
 	}
 	h.Write(chal)
 	if _, err := io.Copy(h, fHandle); err != nil {
-		log.Printf("[ON AUDIT] read shard error DATA_HASH=%v ERROR=%v\n", audit.DataHash, err)
+		logger.Warn("read shard error", "data_hash", audit.DataHash, "error", err)
 		return &msg.ResErr{
 			Res: msg.Res{
 				Result: msg.ResResult{
@@ -844,7 +865,7 @@ func (f *Farmer) onAudit(m *MsgInOut) IMessage {
 		}
 	}
 	if auditResCmpPos == -1 {
-		log.Printf("[ON AUDIT] generated tree not found in trees DATA_HASH=%v\n", audit.DataHash)
+		logger.Warn("generated tree not found in trees", "data_hash", audit.DataHash)
 		return &msg.ResErr{
 			Res: msg.Res{
 				Result: msg.ResResult{

@@ -18,7 +18,7 @@ type Config struct {
 	KeyFile   string   `json:"keyfile"`
 	DataDir   string   `json:"data_dir"`
 	SeedList  []string `json:"seed_list"`
-	LogFile   string   `json:"log_file"`
+	LogDir    string   `json:"log_dir"`
 
 	localIP   string
 	localPort uint16
@@ -76,6 +76,17 @@ func (c *Config) Parse() error {
 		err := os.Mkdir(shardPath, 0700)
 		if err != nil {
 			return fmt.Errorf("create shards dir failed: %v", err)
+		}
+	}
+
+	// validate log file
+	if c.LogDir == "" {
+		c.LogDir = "."
+	}
+	fInfo, err = os.Stat(c.LogDir)
+	if os.IsNotExist(err) {
+		if err := os.MkdirAll(c.LogDir, 0755); err != nil {
+			return err
 		}
 	}
 

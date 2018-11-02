@@ -3,7 +3,6 @@ package main
 import (
 	"io"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"os"
 	"path"
@@ -59,20 +58,21 @@ func RootHandler(node INode) http.HandlerFunc {
 }
 
 func ShardHandler() http.HandlerFunc {
+	logger := logger.New("subject", "shard handler")
 	return func(w http.ResponseWriter, r *http.Request) {
 		dataHash := r.URL.Path[len("/shards/"):]
 
 		// get token from request
 		token := r.URL.Query().Get("token")
 		if token == "" {
-			log.Printf("[SHARD] request has no token DATA_HASH=%v\n", dataHash)
+			logger.Info("request has no token", "data_hash", dataHash)
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 		// check if token is valid
 		_, err := BoltDbGet([]byte(token), BucketToken)
 		if err != nil {
-			log.Printf("[SHARD] check token existence error DATA_HASH=%v ERROR=%v\n", dataHash, err)
+			logger.Info("check token existence error", "data_hash", dataHash, "error", err)
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
@@ -83,39 +83,41 @@ func ShardHandler() http.HandlerFunc {
 
 		// download shard
 		if r.Method == "GET" {
-			log.Printf("[SHARD GET] DATA_HASH=%v TOKEN=%v\n", dataHash, token)
+			logger := logger.New("method", "GET")
+			logger.Info("", "data_hash", dataHash, "token", token)
 			if os.IsNotExist(err) {
-				log.Printf("[SHARD GET] no shard DATA_HASH=%v TOKEN=%v\n", dataHash, token)
+				logger.Warn("no shard", "data_hash", dataHash, "token", token)
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
 			fHandle, err := os.Open(fPath)
 			if err != nil {
 				// TODO: close handle?
-				log.Printf("[SHARD GET] open shard error DATA_HASH=%v TOKEN=%v ERROR=%v\n", dataHash, token, err)
+				logger.Warn("open shard error", "data_hash", dataHash, "token", token, "error", err)
 				w.WriteHeader(http.StatusNotFound)
 				return
 			}
 			defer fHandle.Close()
 			_, err = io.Copy(w, fHandle)
 			if err != nil {
-				log.Printf("[SHARD GET] copy shard error DATA_HASH=%v TOKEN=%v ERROR=%v\n", dataHash, token, err)
+				logger.Warn("copy shard error", "data_hash", dataHash, "token", token, "error", err)
 				return
 			}
-			log.Printf("[SHARD GET] success DATA_HASH=%v TOKEN=%v\n", dataHash, token)
+			logger.Info("GET shard success", "data_hash", dataHash, "token", token)
 			return
 		}
 		// upload shard
 		if r.Method == "POST" {
+			logger := logger.New("method", "POST")
 			if os.IsExist(err) {
-				log.Printf("[SHARD POST] shard already exist DATA_HASH=%v TOKEN=%v\n", dataHash, token)
+				logger.Warn("shard already exist", "data_hash", dataHash, "token", token)
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
 			// save shard
 			fHandle, err := os.Create(fPath)
 			if err != nil {
-				log.Printf("[SHARD POST] create shard error DATA_HASH=%v TOKEN=%v ERROR=%v\n", dataHash, token, err)
+				logger.Warn("create shard error", "data_hash", dataHash, "token", token, "error", err)
 				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
@@ -123,14 +125,14 @@ func ShardHandler() http.HandlerFunc {
 			if err != nil {
 				// TODO: close handle ?
 				if err != nil {
-					log.Printf("[SHARD POST] save shard error DATA_HASH=%v TOKEN=%v ERROR=%v\n", dataHash, token, err)
+					logger.Warn("save shard error", "data_hash", dataHash, "token", token, "error", err)
 				}
 				// if exist, remove the broken file
 				_, err = os.Stat(fPath)
 				if os.IsExist(err) {
 					rErr := os.Remove(fPath)
 					if rErr != nil {
-						log.Printf("[SHARD POST] remove broken file error DATA_HASH=%v TOKEN=%v ERROR=%v\n", dataHash, token, rErr)
+						logger.Warn("remove broken file error", "data_hash", dataHash, "token", token, "error", err)
 					}
 				}
 				w.WriteHeader(http.StatusBadRequest)
@@ -138,9 +140,9 @@ func ShardHandler() http.HandlerFunc {
 			}
 			cErr := fHandle.Close()
 			if cErr != nil {
-				log.Printf("[SHARD POST] close file error DATA_HASH=%v TOKEN=%v ERROR=%v\n", dataHash, token, cErr)
+				logger.Warn("close file error", "data_hash", dataHash, "token", token, "error", err)
 			}
-			log.Printf("[SHARD POST] success DATA_HASH=%v TOKEN=%v\n", dataHash, token)
+			logger.Info("POST shard success", "data_hash", dataHash, "token", token)
 		}
 	}
 }

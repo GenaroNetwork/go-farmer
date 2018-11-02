@@ -4,10 +4,10 @@ import (
 	"crypto/ecdsa"
 	"encoding/hex"
 	"errors"
-	"log"
 
 	"github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/crypto/secp256k1"
+	log "github.com/inconshreveable/log15"
 )
 
 type PrivateKey struct {
@@ -43,7 +43,7 @@ func (pk *PrivateKey) NodeId() string {
 func (pk *PrivateKey) Sign(hash []byte) []byte {
 	s, err := secp256k1.Sign(hash, pk.seckey)
 	if err != nil {
-		log.Printf("[CRYPTO SECP256K1] sign error ERROR=%v\n", err)
+		log.Warn("sign error", "subject", "secp256k1", "error", err)
 		return nil
 	}
 	result := compactSig(s)

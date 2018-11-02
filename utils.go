@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"os"
 	"path"
@@ -141,7 +140,7 @@ func SendMsg(c msg.Contact, m *MsgInOut, dur time.Duration, cb SendMsgHandler) e
 	rawBody, err := ioutil.ReadAll(resp.Body)
 	_ = resp.Body.Close()
 	if err != nil {
-		log.Printf("[UTILS SendMsg] get resp raw body error: %v\n", err)
+		logger.Warn("get resp raw body error", "subject", "SendMsg", "error", err)
 		return err
 	}
 	m.SetMsgInRaw(rawBody)
@@ -149,6 +148,7 @@ func SendMsg(c msg.Contact, m *MsgInOut, dur time.Duration, cb SendMsgHandler) e
 }
 
 func DownloadShard(c msg.Contact, dataHash, token string) error {
+	logger := logger.New("subject", "DownloadShard")
 	// check shard existence
 	fPath := path.Join(Cfg.GetShardsPath(), dataHash)
 	_, err := os.Stat(fPath)
@@ -175,26 +175,42 @@ func DownloadShard(c msg.Contact, dataHash, token string) error {
 	go func(path string) {
 		fHandle, err := os.Create(path)
 		if err != nil {
-			log.Printf("[UTILS DownloadShard] create shard error DATA_HASH=%v ERROR=%v\n", dataHash, err)
+			logger.Warn("create shard error", "data_hash", dataHash, "error", err)
 			// if exist, remove the broken file
 			_, err = os.Stat(path)
 			if os.IsExist(err) {
 				rErr := os.Remove(path)
 				if rErr != nil {
-					log.Printf("[UTILS DownloadShard] remove broken file error DATA_HASH=%v ERROR=%v\n", dataHash, rErr)
+					logger.Warn("remove broken file error", "data_hash", dataHash, "error", rErr)
 				}
 			}
 			return
 		}
 		defer fHandle.Close()
-		log.Printf("[UTILS DownloadShard] downloading shard DATA_HASH=%v\n", dataHash)
+		logger.Info("downloading shard", "data_hash", dataHash)
 		size, err := io.Copy(fHandle, resp.Body)
 		if err != nil {
-			log.Printf("[UTILS DownloadShard] download shard error DATA_HASH=%v ERROR=%v\n", dataHash, err)
+			logger.Warn("download shard error", "data_hash", dataHash, "error", err)
 			return
 		}
-		log.Printf("[UTILS DownloadShard] downloaded shard DATA_HASH=%v SIZE=%v\n", dataHash, size)
+		logger.Info("downloaded shard", "data_hash", dataHash, "size", size)
 		// TODO: update db ?
 	}(fPath)
 	return nil
+}
+
+func JsonMarshal(v interface{}) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+func JsonPrettyMarshal(v interface{}) string {
+	b, err := json.MarshalIndent(v, "", " ")
+	if err != nil {
+		return ""
+	}
+	return string(b)
 }
