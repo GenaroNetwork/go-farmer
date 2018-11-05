@@ -2,12 +2,13 @@ package main
 
 import (
 	"fmt"
+	"strconv"
 	"time"
 
 	ui "github.com/gizak/termui"
 )
 
-func UiSetup() (err error) {
+func UiSetup(chanSize chan int64) (err error) {
 	err = ui.Init()
 	if err != nil {
 		return
@@ -16,6 +17,7 @@ func UiSetup() (err error) {
 
 	strs := [] string{
 		"Up Time: 0 second",
+		"Shared Size: 0",
 		":PRESS q to quit",
 	}
 
@@ -31,10 +33,18 @@ func UiSetup() (err error) {
 	ticker := time.NewTicker(time.Second)
 	now := time.Now()
 	go func() {
+		var totalSize int64 = 0
 		for {
 			t := <-ticker.C
 			dur := t.Sub(now)
 			strs[0] = fmt.Sprintf("Up Time: %v", humanizeDur(dur))
+			// size
+			select {
+			case size := <-chanSize:
+				totalSize += size
+				strs[1] = fmt.Sprintf("Shared Size: %v", humanizeSize(totalSize))
+			default:
+			}
 			ui.Render(ls)
 		}
 	}()
@@ -86,4 +96,35 @@ func humanizeDur(dur time.Duration) string {
 	ret = plural(days, "day") + " " + ret
 end:
 	return ret
+}
+
+func humanizeSize(size int64) string {
+	if size < 1024 {
+		return strconv.FormatInt(size, 10) + " byte"
+	}
+
+	const prec = 2
+	const ffmt = 'f'
+	const bitSize = 32
+	// KB
+	s := float64(size) / 1024
+	if s < 1024 {
+		return strconv.FormatFloat(s, ffmt, prec, bitSize) + " KB"
+	}
+
+	// MB
+	s = float64(s) / 1024
+	if s < 1024 {
+		return strconv.FormatFloat(s, ffmt, prec, bitSize) + " MB"
+	}
+
+	// GB
+	s = float64(s) / 1024
+	if s < 1024 {
+		return strconv.FormatFloat(s, ffmt, prec, bitSize) + " GB"
+	}
+
+	// TB
+	s = float64(s) / 1024
+	return strconv.FormatFloat(s, ffmt, prec, bitSize) + " GB"
 }

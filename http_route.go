@@ -121,7 +121,7 @@ func ShardHandler() http.HandlerFunc {
 				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
-			_, err = io.Copy(fHandle, r.Body)
+			size, err := io.Copy(fHandle, r.Body)
 			if err != nil {
 				// TODO: close handle ?
 				if err != nil {
@@ -143,6 +143,7 @@ func ShardHandler() http.HandlerFunc {
 				logger.Warn("close file error", "data_hash", dataHash, "token", token, "error", err)
 			}
 			logger.Info("POST shard success", "data_hash", dataHash, "token", token)
+			ChanSize <- size
 		}
 	}
 }

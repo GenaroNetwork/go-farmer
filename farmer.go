@@ -18,6 +18,7 @@ import (
 	"github.com/GenaroNetwork/go-farmer/config"
 	"github.com/GenaroNetwork/go-farmer/crypto"
 	"github.com/GenaroNetwork/go-farmer/msg"
+	"github.com/boltdb/bolt"
 	"github.com/ethereum/go-ethereum/accounts/keystore"
 	"github.com/ethereum/go-ethereum/p2p/nat"
 	log "github.com/inconshreveable/log15"
@@ -59,6 +60,8 @@ func (f *Farmer) Init(config config.Config) error {
 		Protocol: "1.2.0-local",
 	})
 
+	ChanSize <- f.getContractSize()
+
 	logger = log.New("module", "farmer")
 	return nil
 }
@@ -89,6 +92,23 @@ func (f *Farmer) doLoadKeyfile(path string) error {
 		return nil
 	}
 	return err
+}
+
+// size of all the shards by the contracts
+func (f *Farmer) getContractSize() int64 {
+	var size int64 = 0
+	_ = BoltDB.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(BucketContract))
+		c := b.Cursor()
+		sItem := storageItem{}
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			if err := json.Unmarshal(v, &sItem); err == nil {
+				size += int64(sItem.Contract.DataSize)
+			}
+		}
+		return nil
+	})
+	return size
 }
 
 func (f *Farmer) Contact() msg.Contact {
@@ -618,7 +638,7 @@ func (f *Farmer) onConsign(m *MsgInOut) IMessage {
 	}
 
 	// save trees
-	// after token is saved, so that we won't have trees while not supply token
+	// after token is saved, so that we only have trees when there's token
 	sItem.Trees = trees
 	js, _ := json.Marshal(sItem)
 	err = BoltDbSet([]byte(dataHash), js, BucketContract, true)

@@ -19,6 +19,7 @@ const BucketToken = "TOKEN"
 
 var BoltDB *bolt.DB
 var Cfg config.Config
+var ChanSize = make(chan int64, 10)
 
 func main() {
 	ParseCmdArgs()
@@ -85,7 +86,7 @@ func main() {
 	// start terminal ui
 	stopUi := make(chan struct{}, 1)
 	go func() {
-		err := UiSetup()
+		err := UiSetup(ChanSize)
 		if err != nil {
 			log.Crit("init failed", "subject", "terminal", "error", err)
 		}
