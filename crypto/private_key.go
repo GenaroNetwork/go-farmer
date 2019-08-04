@@ -1,9 +1,9 @@
 package crypto
 
 import (
-	"crypto/ecdsa"
 	"encoding/hex"
 	"errors"
+	"math/big"
 
 	"github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/crypto/secp256k1"
@@ -15,14 +15,23 @@ type PrivateKey struct {
 	seckey []byte
 }
 
-func (pk *PrivateKey) SetKey(key *ecdsa.PrivateKey) error {
+func (pk *PrivateKey) SetKey(keyHexStr string) error {
+	d, ok := new(big.Int).SetString(keyHexStr, 16)
+	if ok == false {
+		return errors.New("parse hex string failed")
+	}
+	curve := secp256k1.S256()
+	// seckey
+	pk.seckey = math.PaddedBigBytes(d, curve.Params().BitSize/8)
+
 	// nodeId
-	xs := key.PublicKey.X.Bytes()
+	x, y := curve.ScalarBaseMult(pk.seckey)
+	xs := x.Bytes()
 	if len(xs) != 32 {
 		return errors.New("incorrect public key")
 	}
 	ret0 := uint8(3)
-	if key.PublicKey.Y.Bit(0) == 0 {
+	if y.Bit(0) == 0 {
 		ret0 = 2
 	}
 	nodeId := make([]byte, 33)
@@ -31,8 +40,6 @@ func (pk *PrivateKey) SetKey(key *ecdsa.PrivateKey) error {
 	nodeId = Ripemd160Sha256(nodeId)
 	pk.nodeId = hex.EncodeToString(nodeId)
 
-	// seckey
-	pk.seckey = math.PaddedBigBytes(key.D, key.Params().BitSize/8)
 	return nil
 }
 
