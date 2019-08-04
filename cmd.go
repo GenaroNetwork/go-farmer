@@ -1,25 +1,26 @@
 package main
 
 import (
-	"bytes"
+	"crypto/ecdsa"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io/ioutil"
 	"os"
-	"strings"
-	"syscall"
+	"path"
 
-	"github.com/ethereum/go-ethereum/accounts/keystore"
+	"github.com/ethereum/go-ethereum/common/math"
+	"github.com/ethereum/go-ethereum/crypto/secp256k1"
 	log "github.com/inconshreveable/log15"
-	"golang.org/x/crypto/ssh/terminal"
 )
 
 func ParseCmdArgs() {
 	const helpMsg = `usage: go-farmer <command> [<args>]
 Commands:
-	start			start a farmer instance
-	new-account		generate keyfile for a new farmer account
+	new      create a new configuration file
+	start    start a farmer instance
 
 See "go-farmer help <command>" for information on a specific command.
 `
@@ -29,9 +30,9 @@ See "go-farmer help <command>" for information on a specific command.
 	sConfigPath := startCmd.String("config", "./config.json", "config file path")
 
 	/* new-account command */
-	newAccountCmd := flag.NewFlagSet("new-account", flag.ExitOnError)
-	// -path
-	sKeyfilePath := newAccountCmd.String("path", "./", "directory where keyfile will be generated")
+	newAccountCmd := flag.NewFlagSet("new", flag.ExitOnError)
+	// -config
+	sNewConfigPath := newAccountCmd.String("config", "./", "config file path")
 
 	if len(os.Args) == 1 {
 		fmt.Print(helpMsg)
@@ -42,9 +43,9 @@ See "go-farmer help <command>" for information on a specific command.
 	case "start":
 		_ = startCmd.Parse(os.Args[2:])
 		parseConfigFile(sConfigPath)
-	case "new-account":
+	case "new":
 		_ = newAccountCmd.Parse(os.Args[2:])
-		doCreateKeyfile(sKeyfilePath)
+		doCreateCfgfile(sNewConfigPath)
 		os.Exit(0)
 	case "help":
 		if len(os.Args) != 3 {
@@ -54,7 +55,7 @@ See "go-farmer help <command>" for information on a specific command.
 		switch os.Args[2] {
 		case "start":
 			startCmd.Usage()
-		case "new-account":
+		case "new":
 			newAccountCmd.Usage()
 		default:
 			fmt.Print(helpMsg)
@@ -67,43 +68,34 @@ See "go-farmer help <command>" for information on a specific command.
 	}
 }
 
-func doCreateKeyfile(cKeyfilePath *string) {
-	// read password
-	fmt.Print("Please enter password: ")
-	pass0, err := terminal.ReadPassword(int(syscall.Stdin))
+func doCreateCfgfile(cNewConfigPath *string) {
+	dir := path.Dir(*cNewConfigPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		fmt.Printf("make directory failed: %v\n", err)
+		os.Exit(2)
+	}
+	pk, err := ecdsa.GenerateKey(secp256k1.S256(), rand.Reader)
 	if err != nil {
-		fmt.Printf("Read password error: %v\n", err)
+		fmt.Printf("generate private key failed: %v\n", err)
 		os.Exit(2)
 	}
-	fmt.Println()
-	sPass0 := strings.TrimSpace(string(pass0))
-	if len(pass0) == 0 {
-		fmt.Println("Empty password disallowed.")
-		os.Exit(2)
-	}
-
-	// read confirm password
-	fmt.Print("Please enter confirm password: ")
-	pass1, err := terminal.ReadPassword(int(syscall.Stdin))
+	pkSer := math.PaddedBigBytes(pk.D, pk.Params().BitSize/8)
+	pkSerStr := hex.EncodeToString(pkSer)
+	defaultCfg := fmt.Sprintf(`{
+  "local_addr": "local_public_ip:5003",
+  "private_key": "%v",
+  "data_dir": "/path/to/data",
+  "seed_list": [
+    "genaro://renter_ip:4000/337472da3068fa05d415262baf4df5bada8aefdc"
+  ],
+  "log_dir": "./"
+}
+`, pkSerStr)
+	err = ioutil.WriteFile(*cNewConfigPath, []byte(defaultCfg), 0755)
 	if err != nil {
-		fmt.Printf("Read password error: %v\n", err)
+		fmt.Printf("write configuration file failed: %v\n", err)
 		os.Exit(2)
 	}
-	fmt.Println()
-
-	// check confirm password
-	if bytes.Equal(pass0, pass1) == false {
-		fmt.Println("Your password and confirmation password do not match.")
-		os.Exit(2)
-	}
-
-	// generate keyfile
-	address, err := keystore.StoreKey(*cKeyfilePath, sPass0, keystore.StandardScryptN, keystore.StandardScryptP)
-	if err != nil {
-		fmt.Printf("Generate key failed: %v\n", err)
-		os.Exit(2)
-	}
-	fmt.Printf("Keyfile generated.\nAddress: %v\n", address.String())
 	os.Exit(0)
 }
 
