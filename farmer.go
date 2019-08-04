@@ -8,29 +8,27 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"path"
 	"strconv"
-	"syscall"
+	"sync"
 	"time"
 
 	"github.com/GenaroNetwork/go-farmer/config"
 	"github.com/GenaroNetwork/go-farmer/crypto"
 	"github.com/GenaroNetwork/go-farmer/msg"
 	"github.com/boltdb/bolt"
-	"github.com/ethereum/go-ethereum/accounts/keystore"
 	"github.com/ethereum/go-ethereum/p2p/nat"
 	log "github.com/inconshreveable/log15"
 	"github.com/patrickmn/go-cache"
 	"github.com/satori/go.uuid"
 	"golang.org/x/crypto/ripemd160"
-	"golang.org/x/crypto/ssh/terminal"
 )
 
 var contractCache *cache.Cache
 var mirrorCache *cache.Cache
 var logger log.Logger
+var offerLock = sync.Map{}
 
 type storageItem struct {
 	Contract msg.Contract `json:"contract"`
@@ -49,7 +47,7 @@ type Farmer struct {
 }
 
 func (f *Farmer) Init(config config.Config) error {
-	if err := f.doLoadKeyfile(config.KeyFile); err != nil {
+	if err := f.pk.SetKey(Cfg.PrivateKey); err != nil {
 		return err
 	}
 	nodeId := f.pk.NodeId()
@@ -57,41 +55,13 @@ func (f *Farmer) Init(config config.Config) error {
 		Address:  Cfg.GetLocalAddr(),
 		Port:     Cfg.GetLocalPort(),
 		NodeID:   nodeId,
-		Protocol: "1.2.0-local",
+		Protocol: Cfg.Protocol,
 	})
 
 	ChanSize <- f.getContractSize()
 
 	logger = log.New("module", "farmer")
 	return nil
-}
-func (f *Farmer) doLoadKeyfile(path string) error {
-	rawKeyfile, err := ioutil.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	const tryN = 3
-	var rawPass []byte
-	var key *keystore.Key
-	for i := 0; i < tryN; i += 1 {
-		fmt.Print("Please input password: ")
-		rawPass, err = terminal.ReadPassword(int(syscall.Stdin))
-		fmt.Println()
-		if err != nil {
-			continue
-		}
-		pass := string(rawPass)
-		key, err = keystore.DecryptKey(rawKeyfile, pass)
-		if err != nil {
-			continue
-		}
-		err = f.pk.SetKey(key.PrivateKey)
-		if err != nil {
-			continue
-		}
-		return nil
-	}
-	return err
 }
 
 // size of all the shards by the contracts
@@ -244,17 +214,15 @@ func (f *Farmer) HeartBeat() {
 	logger.Info("join network success", "subject", "heartbeat")
 
 	// probe periodically
-	failCount := 0
+	isDisconnected := false
 	for {
 		time.Sleep(time.Second * 10)
 		if joinSucc := f.doJoinNetwork(); joinSucc == false {
-			failCount += 1
-		} else {
-			failCount = 0
-		}
-		if failCount >= 10 {
-			logger.Crit("disconnected from network", "subject", "heartbeat")
-			return
+			isDisconnected = true
+			log.Warn("disconnected from network", "subject", "heartbeat")
+		} else if isDisconnected {
+			isDisconnected = false
+			log.Info("reconnected", "subject", "heartbeat")
 		}
 	}
 }
@@ -382,7 +350,7 @@ func (f *Farmer) findNode(contact msg.Contact) {
 	}
 }
 
-func (f *Farmer) offer(contact msg.Contact, c msg.Contract) {
+func (f *Farmer) offer(contact msg.Contact, c msg.Contract) error {
 	logger := logger.New("subject", "offer")
 	msgOffer := msg.Offer{
 		JsonRpc: "2.0",
@@ -419,8 +387,6 @@ func (f *Farmer) offer(contact msg.Contact, c msg.Contract) {
 			err := BoltDbSet([]byte(contract.DataHash), js, BucketContract, false)
 
 			if err != nil {
-				// delete cache so we can process it again
-				contractCache.Delete(contract.DataHash)
 				return err
 			}
 			return nil
@@ -433,6 +399,7 @@ func (f *Farmer) offer(contact msg.Contact, c msg.Contract) {
 	} else {
 		logger.Info("offer success", "data_hash", c.DataHash)
 	}
+	return err
 }
 
 /////////////////////
@@ -513,7 +480,14 @@ func (f *Farmer) onPublish(m *MsgInOut) IMessage {
 		contract.PaymentDestination = &addr
 		f.SignContract(&contract)
 		go func() {
-			f.offer(msgPublish.Params.Contact, contract)
+			c := make(chan struct{})
+			offerLock.Store(_dataHash, c)
+			if err := f.offer(msgPublish.Params.Contact, contract); err != nil {
+				// delete cache so we can process it again
+				contractCache.Delete(_dataHash)
+			}
+			c <- struct{}{}
+			offerLock.Delete(_dataHash)
 		}()
 	}
 	return f._generalRes(m)
@@ -536,25 +510,22 @@ func (f *Farmer) onFindNode(m *MsgInOut) IMessage {
 	return &res
 }
 
-//func offer(node INode, m *MsgInOut) IMessage {
-//	offer := m.MsgInStruct().(*msg.Offer)
-//	c := node.Contact()
-//	res := msg.OfferRes{
-//		Result: msg.OfferResResult{
-//			Contract: offer.Params.Contract,
-//			Contact:  c,
-//		},
-//	}
-//	return &res
-//}
-
 func (f *Farmer) onConsign(m *MsgInOut) IMessage {
 	logger := logger.New("subject", "on consign")
 
-	// verify trees
+	// wait til offer finished
 	msgConsign := m.MsgInStruct().(*msg.Consign)
+	dataHash := msgConsign.Params.DataHash
+	if value, ok := offerLock.Load(dataHash); ok {
+		if c, ok := value.(chan struct{}); ok {
+			<-c
+		}
+	}
+
+	// verify trees
 	trees := msgConsign.Params.AuditTree
 	if len(trees) == 0 {
+		logger.Warn("audit_tree is empty", "data_hash", dataHash)
 		return &msg.ResErr{
 			Res: msg.Res{
 				Result: msg.ResResult{
@@ -569,9 +540,9 @@ func (f *Farmer) onConsign(m *MsgInOut) IMessage {
 	}
 
 	// get storageItem
-	dataHash := msgConsign.Params.DataHash
 	sItemRaw, err := BoltDbGet([]byte(dataHash), BucketContract)
 	if err != nil {
+		logger.Warn("no contract for data_hash", "data_hash", dataHash)
 		return &msg.ResErr{
 			Res: msg.Res{
 				Result: msg.ResResult{
@@ -589,6 +560,7 @@ func (f *Farmer) onConsign(m *MsgInOut) IMessage {
 	var sItem storageItem
 	err = json.Unmarshal(sItemRaw, &sItem)
 	if err != nil {
+		logger.Warn("internal error", "data_hash", dataHash, "error", err)
 		return &msg.ResErr{
 			Res: msg.Res{
 				Result: msg.ResResult{
@@ -604,6 +576,7 @@ func (f *Farmer) onConsign(m *MsgInOut) IMessage {
 
 	// verify trees length
 	if sItem.Contract.AuditCount != len(trees) {
+		logger.Warn("AuditCount incorrect", "data_hash", dataHash)
 		return &msg.ResErr{
 			Res: msg.Res{
 				Result: msg.ResResult{
@@ -664,7 +637,7 @@ func (f *Farmer) onConsign(m *MsgInOut) IMessage {
 			Contact: c,
 		},
 	}
-	logger.Info("success", "data_hash", dataHash, "token", token)
+	logger.Info("on consign success", "data_hash", dataHash, "token", token)
 	return &res
 }
 
