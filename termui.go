@@ -34,17 +34,21 @@ func UiSetup(chanSize chan int64) (err error) {
 	now := time.Now()
 	go func() {
 		var totalSize int64 = 0
+		var t time.Time
 		for {
-			t := <-ticker.C
+		inner:
+			for {
+				select {
+				case size := <-chanSize:
+					totalSize += size
+				case t = <-ticker.C:
+					break inner
+				}
+			}
 			dur := t.Sub(now)
 			strs[0] = fmt.Sprintf("Up Time: %v", humanizeDur(dur))
-			// size
-			select {
-			case size := <-chanSize:
-				totalSize += size
-				strs[1] = fmt.Sprintf("Shared Size: %v", humanizeSize(totalSize))
-			default:
-			}
+			strs[1] = fmt.Sprintf("Shared Size: %v", humanizeSize(totalSize))
+
 			ui.Render(ls)
 		}
 	}()
