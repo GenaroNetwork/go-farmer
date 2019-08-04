@@ -2,9 +2,9 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 
 	"github.com/GenaroNetwork/go-farmer/msg"
+	log "github.com/inconshreveable/log15"
 	"github.com/mitchellh/mapstructure"
 )
 
@@ -66,7 +66,7 @@ func (mio *MsgInOut) ParseMsgInRaw() {
 	case msg.MAudit:
 		mio.msgInStruct = &msg.Audit{}
 	default:
-		fmt.Printf("received unknown message %v\n", vMethod)
+		log.Warn("unknown message", "message", vMethod)
 		return
 	}
 	mapstructure.Decode(mio.msgInMap, mio.msgInStruct)

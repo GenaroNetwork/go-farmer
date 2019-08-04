@@ -108,6 +108,7 @@ func main() {
 
 	// shutdown server gracefully
 	log.Info("Shutting down the server...")
+	log.Info("Shutting down the server...")
 	ctx, _ := context.WithTimeout(context.Background(), time.Minute)
 	_ = server.Shutdown(ctx)
 }
