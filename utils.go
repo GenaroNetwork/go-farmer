@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"sync"
 	"time"
 
 	"github.com/GenaroNetwork/go-farmer/msg"
@@ -114,7 +115,7 @@ func varintBufNum(n int) (buf []byte) {
 
 type SendMsgHandler func() error
 
-var client = &http.Client{}
+var clientCache = sync.Map{}
 
 func SendMsg(c msg.Contact, m *MsgInOut, dur time.Duration, cb SendMsgHandler) error {
 	// prepare request payload
@@ -130,7 +131,17 @@ func SendMsg(c msg.Contact, m *MsgInOut, dur time.Duration, cb SendMsgHandler) e
 	req.Header.Set("content-type", "application/json")
 
 	// do send request
-	client.Timeout = dur
+	var client *http.Client
+	if value, ok := clientCache.Load(dur); ok {
+		if c, ok := value.(*http.Client); ok {
+			client = c
+		}
+	}
+	if client == nil {
+		client = &http.Client{}
+		client.Timeout = dur
+		clientCache.Store(dur, client)
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
@@ -165,7 +176,18 @@ func DownloadShard(c msg.Contact, dataHash, token string) error {
 	req.Header.Set("userAgent", "8.7.3")
 
 	// do send request
-	client.Timeout = 0
+	dur := time.Second * 0
+	var client *http.Client
+	if value, ok := clientCache.Load(dur); ok {
+		if c, ok := value.(*http.Client); ok {
+			client = c
+		}
+	}
+	if client == nil {
+		client = &http.Client{}
+		client.Timeout = dur
+		clientCache.Store(dur, client)
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
