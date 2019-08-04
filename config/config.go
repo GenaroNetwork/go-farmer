@@ -14,11 +14,12 @@ import (
 )
 
 type Config struct {
-	LocalAddr string   `json:"local_addr"`
-	KeyFile   string   `json:"keyfile"`
-	DataDir   string   `json:"data_dir"`
-	SeedList  []string `json:"seed_list"`
-	LogDir    string   `json:"log_dir"`
+	LocalAddr  string   `json:"local_addr"`
+	PrivateKey string   `json:"private_key"`
+	DataDir    string   `json:"data_dir"`
+	SeedList   []string `json:"seed_list"`
+	LogDir     string   `json:"log_dir"`
+	Protocol   string   `json:"protocol"`
 
 	localIP   string
 	localPort uint16
@@ -50,20 +51,19 @@ func (c *Config) Parse() error {
 	c.localPort = port
 	c.localIP = ip.String()
 
-	// check if keyfile exists
-	fInfo, err := os.Stat(c.KeyFile)
-	if os.IsNotExist(err) {
-		return errors.New("keyfile not exist")
+	// validate private key format
+	if err := isValidHexStr(c.PrivateKey); err != nil {
+		return fmt.Errorf("private key error: %v", err)
 	}
-	if fInfo.IsDir() {
-		return errors.New("keyfile is a directory")
+	if len(c.PrivateKey) != 64 {
+		return errors.New("incorrect private key length")
 	}
 
 	// validate data dir
 	if c.DataDir == "" {
 		return errors.New("data_dir is empty")
 	}
-	fInfo, err = os.Stat(c.DataDir)
+	fInfo, err := os.Stat(c.DataDir)
 	if os.IsNotExist(err) {
 		return errors.New("data dir not exist")
 	}
@@ -88,6 +88,11 @@ func (c *Config) Parse() error {
 		if err := os.MkdirAll(c.LogDir, 0755); err != nil {
 			return err
 		}
+	}
+
+	// validate protocol
+	if c.Protocol == "" {
+		return errors.New("protocol is empty")
 	}
 
 	// validate seed list
